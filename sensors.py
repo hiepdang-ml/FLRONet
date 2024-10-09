@@ -98,12 +98,12 @@ if __name__ == '__main__':
     import matplotlib.pyplot as plt
 
     # Extract x and y coordinates
-    x_coords = sensor_positions[:, 1].numpy()  # y axis in the plane
-    y_coords = sensor_positions[:, 0].numpy()  # x axis in the plane
+    x_coords = sensor_positions[:, 1].numpy()
+    y_coords = sensor_positions[:, 0].numpy()
 
-    plt.figure(figsize=(8, 4))  # Aspect ratio to reflect 64x128 grid
-    plt.xlim(0, spatial_shape[1])  # Set the limits for the x-axis
-    plt.ylim(0, spatial_shape[0])   # Set the limits for the y-axis
+    plt.figure(figsize=(8, 4))
+    plt.xlim(0, spatial_shape[1])
+    plt.ylim(0, spatial_shape[0])
     plt.scatter(x_coords, y_coords, color='red', marker='o')
     plt.grid(True)
     plt.savefig('test.png')
