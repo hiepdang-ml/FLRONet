@@ -134,8 +134,8 @@ if __name__ == '__main__':
         embedding_generator=embedding_generator,
     )
     sensor_data, fullstate_data = self[500]
-    sensor_data
-    fullstate_data
+    print(sensor_data)
+    print(fullstate_data)
 
 
 

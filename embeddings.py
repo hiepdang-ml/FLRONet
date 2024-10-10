@@ -31,37 +31,36 @@ class Voronoi(EmbeddingGenerator):
 
         distances: torch.Tensor = torch.norm(sensor_positions.unsqueeze(1) - positions, dim=-1)
         assert distances.shape == (S, H * W)
-        closest_sensor_per_position: torch.Tensor = torch.argmin(distances, dim=0)
-        assert closest_sensor_per_position.shape == (H * W,)
-        assigned_sensor_per_position: torch.Tensor = sensor_positions[closest_sensor_per_position]
-        assert assigned_sensor_per_position.shape == (H * W, 2)
-
-        output: torch.Tensor = torch.zeros_like(data, dtype=torch.float)
 
         # Voronoi Variant: Weighted average interpolation
         if self.weighted:
+            h_indices: torch.Tensor = sensor_positions[:, 0].long()
+            w_indices: torch.Tensor = sensor_positions[:, 1].long()
+            sensor_values: torch.Tensor = data[:, :, :, h_indices, w_indices]
+            assert sensor_values.shape == (N, T, C, S)
+
+            # inverse distance weighting
             epsilon: float = 1e-8
             inverse_distances: torch.Tensor = 1.0 / (distances + epsilon)
-            # inverse distance weighting
-            weights: torch.Tensor = inverse_distances / inverse_distances.sum(dim=0, keepdim=True)  # (S, H * W)
+            weights: torch.Tensor = inverse_distances / inverse_distances.sum(dim=0, keepdim=True)
+            assert weights.shape == (S, H * W)
 
-            for n in range(N):
-                for t in range(T):
-                    for c in range(C):
-                        sensor_values: torch.Tensor = data[n, t, c, sensor_positions[:, 0], sensor_positions[:, 1]]
-                        assert sensor_values.shape == (S,)
-                        interpolated_values: torch.Tensor = torch.sum(weights * sensor_values.unsqueeze(1), dim=0).reshape(H, W)
-                        output[n, t, c] = interpolated_values
+            output: torch.Tensor = torch.sum(
+                # (1, 1, 1, S, H * W) * (N, T, C, S, 1) = (N, T, C, S, H * W)
+                weights.unsqueeze(0).unsqueeze(0).unsqueeze(0) * sensor_values.unsqueeze(-1), 
+                dim=3,
+            ).reshape(N, T, C, H, W)
         
         # Original Voronoi: Nearest Neighbor Interpolation
         else:
-            for n in range(N):
-                for t in range(T):
-                    for c in range(C):
-                        interpolated_values: torch.Tensor = data[
-                            n, t, c, assigned_sensor_per_position[:, 0], assigned_sensor_per_position[:, 1]
-                        ].reshape(H, W)
-                        output[n, t, c] = interpolated_values
+            closest_sensor_per_position: torch.Tensor = torch.argmin(distances, dim=0)
+            assert closest_sensor_per_position.shape == (H * W,)
+            assigned_sensor_per_position: torch.Tensor = sensor_positions[closest_sensor_per_position]
+            assert assigned_sensor_per_position.shape == (H * W, 2)
+
+            h_indices: torch.Tensor = assigned_sensor_per_position[:, 0].long()
+            w_indices: torch.Tensor = assigned_sensor_per_position[:, 1].long()
+            output: torch.Tensor = data[:, :, :, h_indices, w_indices].reshape(N, T, C, H, W)
 
         assert output.shape == data.shape == (N, T, C, H, W)
         return output
@@ -88,7 +87,8 @@ class Mask(EmbeddingGenerator):
 
 if __name__ == '__main__':
     x = torch.arange(50, dtype=torch.float).reshape(1, 1, 1, 5, 10)
-    self = Voronoi(weighted=False)
+    # self = Voronoi(weighted=False)
+    self = Voronoi(weighted=True)
     points = torch.tensor([[1, 4], [2, 6], [3, 7]])
     a = self(x, points)
     print(a)
