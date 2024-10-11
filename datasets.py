@@ -14,7 +14,6 @@ from embeddings import Voronoi, Mask
 
 class CFDDataset(Dataset):
 
-    # TODO: implement interpolation to arbitrary shape
     def __init__(
         self, 
         root: str, 
