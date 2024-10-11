@@ -21,14 +21,8 @@ class SensorGenerator(ABC):
         self.__seed: int = 0
 
     @abstractmethod
-    def generate(self) -> Tuple[torch.Tensor, torch.Tensor]:
+    def __call__(self) -> torch.Tensor:
         pass
-
-    def abs2rel(self, abs_positions: torch.Tensor) -> torch.Tensor:
-        rel_positions: torch.Tensor = torch.zeros_like(abs_positions, dtype=torch.float)
-        rel_positions[:, 0] = abs_positions[:, 0].float() / self.spatial_shape[0]
-        rel_positions[:, 1] = abs_positions[:, 1].float() / self.spatial_shape[1]
-        return rel_positions
 
     @property
     def seed(self) -> int:
@@ -43,18 +37,15 @@ class LHS(SensorGenerator):
 
     # implement
     @cache
-    def generate(self) -> Tuple[torch.Tensor, torch.Tensor]:
+    def __call__(self) -> torch.Tensor:
         lhs_samples: np.ndarray = self._sampling()
         # absolute positions
-        abs_sensor_positions: torch.Tensor = torch.zeros((self.n_sensors, self.n_dims), dtype=torch.int32)
+        sensor_positions: torch.Tensor = torch.zeros((self.n_sensors, self.n_dims), dtype=torch.int32)
         for sensor in range(self.n_sensors):
             for dim in range(self.n_dims):
-                abs_sensor_positions[sensor, dim] = int(lhs_samples[sensor, dim] * self.spatial_shape[dim])
+                sensor_positions[sensor, dim] = int(lhs_samples[sensor, dim] * self.spatial_shape[dim])
 
-        # relative positions
-        rel_sensor_positions: torch.Tensor = self.abs2rel(abs_sensor_positions)
-
-        return rel_sensor_positions, sensor_positions
+        return sensor_positions
 
     def _sampling(self) -> np.ndarray:
         np.random.seed(self.seed)
@@ -75,12 +66,12 @@ class AroundCylinder(SensorGenerator):
 
     # implement
     @cache
-    def generate(
+    def __call__(
         self, 
         hw_meters: Tuple[float, float],
         center_hw_meters: Tuple[float, float],
         radius_meters: float, 
-    ) -> Tuple[torch.Tensor, torch.Tensor]:
+    ) -> torch.Tensor:
         
         assert self.n_dims == 2, 'AroundCylinder only works in 2D space'
         np.random.seed(self.seed)
@@ -98,15 +89,11 @@ class AroundCylinder(SensorGenerator):
         center_h_pixels = center_hw_meters[0] / h_scale
         center_w_pixels = center_hw_meters[1] / w_scale
 
-        # absolute positions
-        abs_sensor_positions: torch.Tensor = torch.zeros((self.n_sensors, self.n_dims), dtype=torch.int32)
-        abs_sensor_positions[:, 0] = torch.from_numpy(np.cos(np.deg2rad(samples)) * radius_h_pixels + center_h_pixels)
-        abs_sensor_positions[:, 1] = torch.from_numpy(np.sin(np.deg2rad(samples)) * radius_w_pixels + center_w_pixels)
+        sensor_positions: torch.Tensor = torch.zeros((self.n_sensors, self.n_dims), dtype=torch.int32)
+        sensor_positions[:, 0] = torch.from_numpy(np.cos(np.deg2rad(samples)) * radius_h_pixels + center_h_pixels)
+        sensor_positions[:, 1] = torch.from_numpy(np.sin(np.deg2rad(samples)) * radius_w_pixels + center_w_pixels)
 
-        # relative positions
-        rel_sensor_positions: torch.Tensor = self.abs2rel(abs_sensor_positions)
-
-        return rel_sensor_positions, abs_sensor_positions
+        return sensor_positions
 
 
 
@@ -116,7 +103,7 @@ if __name__ == '__main__':
     # sensor_positions = self.generate()
 
     self = AroundCylinder(spatial_shape=spatial_shape, n_sensors=32)
-    sensor_positions = self.generate(hw_meters=(0.14, 0.24), center_hw_meters=(0.08, 0.08), radius_meters=0.01)
+    sensor_positions = self(hw_meters=(0.14, 0.24), center_hw_meters=(0.08, 0.08), radius_meters=0.01)
     import matplotlib.pyplot as plt
 
     # Extract x and y coordinates
