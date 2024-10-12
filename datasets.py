@@ -51,10 +51,10 @@ class CFDDataset(Dataset):
 
     def __getitem__(self, idx: int) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         suffix: str = str(idx).zfill(6)
-        sensor_timeframe_tensor: torch.Tensor = torch.load(os.path.join(self.sensor_timeframes_dest, f'ST{suffix}.pt'))
-        sensor_tensor: torch.Tensor = torch.load(os.path.join(self.sensor_values_dest, f'SV{suffix}.pt'))
-        fullstate_timeframe_tensor: torch.Tensor = torch.load(os.path.join(self.fullstate_timeframes_dest, f'FT{suffix}.pt'))
-        fullstate_tensor: torch.Tensor = torch.load(os.path.join(self.fullstate_values_dest, f'FV{suffix}.pt'))
+        sensor_timeframe_tensor: torch.Tensor = torch.load(os.path.join(self.sensor_timeframes_dest, f'ST{suffix}.pt'), weights_only=True)
+        sensor_tensor: torch.Tensor = torch.load(os.path.join(self.sensor_values_dest, f'SV{suffix}.pt'), weights_only=True)
+        fullstate_timeframe_tensor: torch.Tensor = torch.load(os.path.join(self.fullstate_timeframes_dest, f'FT{suffix}.pt'), weights_only=True)
+        fullstate_tensor: torch.Tensor = torch.load(os.path.join(self.fullstate_values_dest, f'FV{suffix}.pt'), weights_only=True)
         return sensor_timeframe_tensor, sensor_tensor, fullstate_timeframe_tensor, fullstate_tensor
     
     def __len__(self) -> int:
@@ -69,7 +69,8 @@ class CFDDataset(Dataset):
         os.makedirs(name=self.fullstate_timeframes_dest, exist_ok=True)
         os.makedirs(name=self.fullstate_values_dest, exist_ok=True)
 
-        for caseid, casedir in enumerate(self.case_directories[:2]):
+        # for caseid, casedir in enumerate(self.case_directories):
+        for caseid, casedir in enumerate(self.case_directories[:1]):
             data: torch.Tensor = torch.stack(
                 tensors=[
                     torch.from_numpy(np.load(os.path.join(casedir, 'u.npy'))),
@@ -142,7 +143,7 @@ class CFDDataset(Dataset):
         torch.random.manual_seed(seed=seed)
         random_init_timeframe_indices: torch.Tensor = torch.randperm(
             n=max(self.init_sensor_timeframe_indices)
-        )[:self.n_fullstate_timeframes_per_chunk].sort()[0]
+        )[:self.n_fullstate_timeframes_per_chunk]
         fullstate_timeframe_indices: torch.Tensor = random_init_timeframe_indices + torch.arange(steps).unsqueeze(1)
         assert fullstate_timeframe_indices.shape == (steps, self.n_fullstate_timeframes_per_chunk)
         return fullstate_timeframe_indices
