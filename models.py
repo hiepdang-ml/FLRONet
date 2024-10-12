@@ -1,5 +1,4 @@
 from typing import List, Tuple
-import math
 
 import torch
 import torch.nn as nn
@@ -172,12 +171,12 @@ class FLRONet(nn.Module):
 if __name__ == '__main__':
 
     from torch.utils.data import DataLoader
-    from interpolation import Mask, Voronoi
+    from embeddings import Mask, Voronoi
     from sensors import AroundCylinder, LHS
     from datasets import CFDDataset
 
     # sensor_generator = LHS(spatial_shape=(64, 64), n_sensors=32)
-    sensor_generator = AroundCylinder(spatial_shape=(64, 64), n_sensors=32)
+    sensor_generator = AroundCylinder(resolution=(64, 64), n_sensors=32)
     # embedding_generator = Mask()
     embedding_generator = Voronoi(weighted=False)
 

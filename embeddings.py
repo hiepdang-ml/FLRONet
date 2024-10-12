@@ -2,14 +2,14 @@ from abc import ABC, abstractmethod
 import torch
 
 
-class EmbeddingGenerator(ABC):
+class SensorEmbedding(ABC):
 
     @abstractmethod
     def __call__(self, data: torch.Tensor, sensor_positions: torch.LongTensor) -> torch.Tensor:
         pass
 
 
-class Voronoi(EmbeddingGenerator):
+class Voronoi(SensorEmbedding):
 
     def __init__(self, weighted: bool = False):
         super().__init__()
@@ -66,7 +66,7 @@ class Voronoi(EmbeddingGenerator):
         return output
 
 
-class Mask(EmbeddingGenerator):
+class Mask(SensorEmbedding):
 
     # implement
     def __call__(self, data: torch.Tensor, sensor_positions: torch.LongTensor) -> torch.Tensor:

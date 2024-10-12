@@ -11,13 +11,13 @@ class SensorGenerator(ABC):
 
     def __init__(
         self, 
-        spatial_shape: Tuple[int, int], 
+        resolution: Tuple[int, int], 
         n_sensors: int, 
     ) -> None:
         super().__init__()
-        self.spatial_shape: Tuple[int, int] = spatial_shape
+        self.resolution: Tuple[int, int] = resolution
         self.n_sensors: int = n_sensors
-        self.n_dims: int = len(spatial_shape)
+        self.n_dims: int = len(resolution)
         self.__seed: int = 0
 
     @abstractmethod
@@ -43,7 +43,7 @@ class LHS(SensorGenerator):
         sensor_positions: torch.Tensor = torch.zeros((self.n_sensors, self.n_dims), dtype=torch.int32)
         for sensor in range(self.n_sensors):
             for dim in range(self.n_dims):
-                sensor_positions[sensor, dim] = int(lhs_samples[sensor, dim] * self.spatial_shape[dim])
+                sensor_positions[sensor, dim] = int(lhs_samples[sensor, dim] * self.resolution[dim])
 
         return sensor_positions
 
@@ -76,12 +76,12 @@ class AroundCylinder(SensorGenerator):
         assert self.n_dims == 2, 'AroundCylinder only works in 2D space'
         np.random.seed(self.seed)
         samples: np.ndarray = LHS(
-            spatial_shape=(360,), n_sensors=self.n_sensors,
+            resolution=(360,), n_sensors=self.n_sensors,
         )._sampling().flatten()
         samples = samples * 360
         # compute meters per pixel
-        h_scale = hw_meters[0] / self.spatial_shape[0]
-        w_scale = hw_meters[1] / self.spatial_shape[1]
+        h_scale = hw_meters[0] / self.resolution[0]
+        w_scale = hw_meters[1] / self.resolution[1]
         # compute radius of the cylinder
         radius_h_pixels = radius_meters / h_scale
         radius_w_pixels = radius_meters / w_scale
@@ -98,11 +98,11 @@ class AroundCylinder(SensorGenerator):
 
 
 if __name__ == '__main__':
-    spatial_shape = (256, 512)
-    # self = LHS(spatial_shape=(140, 240), n_sensors=32)
+    resolution = (256, 512)
+    # self = LHS(resolution=(140, 240), n_sensors=32)
     # sensor_positions = self.generate()
 
-    self = AroundCylinder(spatial_shape=spatial_shape, n_sensors=32)
+    self = AroundCylinder(resolution=resolution, n_sensors=32)
     sensor_positions = self(hw_meters=(0.14, 0.24), center_hw_meters=(0.08, 0.08), radius_meters=0.01)
     import matplotlib.pyplot as plt
 
@@ -111,8 +111,8 @@ if __name__ == '__main__':
     y_coords = sensor_positions[:, 0].numpy()
 
     plt.figure(figsize=(8, 4))
-    plt.xlim(0, spatial_shape[1])
-    plt.ylim(0, spatial_shape[0])
+    plt.xlim(0, resolution[1])
+    plt.ylim(0, resolution[0])
     plt.scatter(x_coords, y_coords, color='red', marker='o')
     plt.grid(True)
     plt.savefig('test.png')
