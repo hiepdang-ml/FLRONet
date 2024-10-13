@@ -89,6 +89,9 @@ class AroundCylinder(SensorGenerator):
         center_h_pixels = center_hw_meters[0] / h_scale
         center_w_pixels = center_hw_meters[1] / w_scale
 
+        print(h_scale, w_scale)
+        print(center_h_pixels, center_w_pixels)
+
         sensor_positions: torch.Tensor = torch.zeros((self.n_sensors, self.n_dims), dtype=torch.int32)
         sensor_positions[:, 0] = torch.from_numpy(np.cos(np.deg2rad(samples)) * radius_h_pixels + center_h_pixels)
         sensor_positions[:, 1] = torch.from_numpy(np.sin(np.deg2rad(samples)) * radius_w_pixels + center_w_pixels)

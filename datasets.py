@@ -37,6 +37,7 @@ class CFDDataset(Dataset):
         self.n_samplings_per_chunk: int = n_samplings_per_chunk
         self.resolution: Tuple[int, int] = resolution
         self.sensor_generator: LHS | AroundCylinder = sensor_generator
+        self.sensor_generator.seed = seed
         self.embedding_generator: Voronoi | Mask = embedding_generator
         self.seed: int = seed
 
@@ -44,6 +45,7 @@ class CFDDataset(Dataset):
         self.n_sensor_timeframes_per_chunk: int = len(init_sensor_timeframe_indices)
         self.total_timeframes_per_case: int = np.load(os.path.join(self.case_directories[0], 'u.npy')).shape[0]
 
+        self.sensor_positions_dest: str = os.path.join('tensors', 'sensor_positions')
         self.sensor_timeframes_dest: str = os.path.join('tensors', 'sensor_timeframes')
         self.sensor_values_dest: str = os.path.join('tensors', 'sensor_values')
         self.fullstate_timeframes_dest: str = os.path.join('tensors', 'fullstate_timeframes')
@@ -67,10 +69,23 @@ class CFDDataset(Dataset):
 
         # prepare dest directories
         shutil.rmtree('tensors')
+        os.makedirs(name=self.sensor_positions_dest, exist_ok=True)
         os.makedirs(name=self.sensor_timeframes_dest, exist_ok=True)
         os.makedirs(name=self.sensor_values_dest, exist_ok=True)
         os.makedirs(name=self.fullstate_timeframes_dest, exist_ok=True)
         os.makedirs(name=self.fullstate_values_dest, exist_ok=True)
+
+        # prepare sensor positions
+        if isinstance(self.sensor_generator, LHS):
+            self.sensor_positions = self.sensor_generator()
+        else:
+            self.sensor_positions = self.sensor_generator(
+                hw_meters=(0.14, 0.24), center_hw_meters=(0.07, 0.065), radius_meters=0.01,
+            )
+
+        assert self.sensor_positions.shape == (self.sensor_generator.n_sensors, 2)
+        # save sensor for reference (it's not used in model)
+        torch.save(obj=self.sensor_positions, f=os.path.join(self.sensor_positions_dest, 'pos.pt'))
 
         # for case_id, case_dir in enumerate(self.case_directories):
         for case_id, case_dir in enumerate(self.case_directories[:1]):
@@ -89,16 +104,8 @@ class CFDDataset(Dataset):
             sensor_data = F.interpolate(input=sensor_data.flatten(0, 1), size=self.resolution, mode='bicubic')
             sensor_data = sensor_data.reshape(n_chunks, self.n_sensor_timeframes_per_chunk, 2, self.H, self.W)
             
-            # prepare sensor positions
-            if isinstance(self.sensor_generator, LHS):
-                sensor_positions = self.sensor_generator()
-            else:
-                sensor_positions = self.sensor_generator(
-                    hw_meters=(0.14, 0.24), center_hw_meters=(0.08, 0.08), radius_meters=0.01,
-                )
-            
             # compute sensor data for entire space
-            sensor_data = self.embedding_generator(data=sensor_data, sensor_positions=sensor_positions)
+            sensor_data = self.embedding_generator(data=sensor_data, sensor_positions=self.sensor_positions)
             assert sensor_data.shape == (n_chunks, self.n_sensor_timeframes_per_chunk, 2, self.H, self.W)
 
             for sampling_id in range(self.n_samplings_per_chunk):
