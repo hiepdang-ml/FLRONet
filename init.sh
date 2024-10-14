@@ -1,4 +1,4 @@
-#/usr/bin/bash
+#!/bin/bash
 
 cd ~/FLRONet
 
@@ -12,8 +12,17 @@ conda activate FLRONet
 sudo apt-get install zip unzip
 
 # Download data
-wget https://huggingface.co/datasets/chen-yingfa/CFDBench/resolve/main/cylinder/bc.zip?download=true -O bc.zip && \
-wget https://huggingface.co/datasets/chen-yingfa/CFDBench/resolve/main/cylinder/prop.zip?download=true -O prop.zip  && \
-unzip bc.zip -d bc && unzip prop.zip -d prop && rm *.zip
+wget https://huggingface.co/datasets/chen-yingfa/CFDBench/resolve/main/cylinder/bc.zip?download=true -O bc.zip
+wget https://huggingface.co/datasets/chen-yingfa/CFDBench/resolve/main/cylinder/prop.zip?download=true -O prop.zip
+unzip bc.zip -d bc 
+unzip prop.zip -d prop
+rm *.zip
 
+# Move to 'raw' directory
+mkdir -p data
+mv bc data
+mv prop data
 
+# Set variables
+export PYTHONPATH=.
+export PATH=$(pwd):$PATH

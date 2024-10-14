@@ -15,6 +15,7 @@ def plot_frame(
     fullstate_frame: torch.Tensor | None = None,
     reconstruction_frame: torch.Tensor | None = None,
     reduction: Callable[[torch.Tensor], torch.Tensor] | None = None,
+    sufix: str = '',
 ) -> None:
     
     if sensor_positions is not None:
@@ -27,15 +28,15 @@ def plot_frame(
 
     if sensor_frame is not None:
         frames_to_plot.append(sensor_frame)
-        titles.append("Sensor Frame")
+        titles.append(f"Sensor Frame {sufix}")
         
     if fullstate_frame is not None:
         frames_to_plot.append(fullstate_frame)
-        titles.append("Full State Frame")
+        titles.append(f"Full State Frame {sufix}")
         
     if reconstruction_frame is not None:
         frames_to_plot.append(reconstruction_frame)
-        titles.append("Reconstruction Frame")
+        titles.append(f"Reconstruction Frame {sufix}")
 
     frame_shapes = [frame.shape for frame in frames_to_plot]
     assert all(shape == frame_shapes[0] for shape in frame_shapes), "All provided frames must have the same shape."
@@ -61,18 +62,19 @@ def plot_frame(
         axs = [axs]  # Ensure axs is iterable if only one subplot
     
     # Plot each frame
+    max_value: float = max([frame.max().item() for frame in frames_to_plot])
     for frame, ax, title in zip(frames_to_plot, axs, titles):
         ax.imshow(
             frame.squeeze(dim=0),
             origin="lower",
-            vmin=0, vmax=frame.max().item(),
+            vmin=0, vmax=max_value,
             cmap='jet',
         )
         if sensor_positions is not None:
             for sensor_x, sensor_y in sensor_positions:
                 ax.add_patch(
                     patches.Rectangle(
-                        (sensor_y, sensor_x),
+                        xy=(sensor_y, sensor_x),
                         width=1, height=1,  # Size of the marker (1 pixel)
                         edgecolor='white',
                         facecolor='white',
@@ -96,18 +98,19 @@ def plot_frame(
 
 
 if __name__ == '__main__':
+
     from functional import compute_velocity_field
     from datasets import CFDDataset
     from sensors import LHS, AroundCylinder
     from embeddings import Mask, Voronoi
     
     # sensor_generator = LHS(spatial_shape=(140, 240), n_sensors=32)
-    sensor_generator = AroundCylinder(resolution=(140, 240), n_sensors=32)
+    sensor_generator = AroundCylinder(resolution=(140, 240), n_sensors=64)
     # embedding_generator = Mask()
     embedding_generator = Voronoi(weighted=False)
 
     dataset = CFDDataset(
-        root='./bc', 
+        root='./data/val', 
         init_sensor_timeframe_indices=[0, 5, 10, 15, 20, 25, 30, 35, 40, 45, 50],
         n_fullstate_timeframes_per_chunk=10,
         n_samplings_per_chunk=1,

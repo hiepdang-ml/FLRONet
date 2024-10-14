@@ -178,10 +178,10 @@ if __name__ == '__main__':
     # sensor_generator = LHS(spatial_shape=(64, 64), n_sensors=32)
     sensor_generator = AroundCylinder(resolution=(64, 64), n_sensors=32)
     # embedding_generator = Mask()
-    embedding_generator = Voronoi(weighted=False)
+    embedding_generator = Voronoi()
 
     dataset = CFDDataset(
-        root='./bc', 
+        root='./data/val', 
         init_sensor_timeframe_indices=[0, 5, 10, 15, 20, 25, 30, 35, 40, 45, 50],
         n_fullstate_timeframes_per_chunk=10,
         resolution=(64, 128),

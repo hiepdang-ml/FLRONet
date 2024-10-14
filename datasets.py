@@ -41,25 +41,39 @@ class CFDDataset(Dataset):
         self.embedding_generator: Voronoi | Mask = embedding_generator
         self.seed: int = seed
 
-        self.H, self.W = self.resolution
+        self.H, self.W = resolution
         self.n_sensor_timeframes_per_chunk: int = len(init_sensor_timeframe_indices)
         self.total_timeframes_per_case: int = np.load(os.path.join(self.case_directories[0], 'u.npy')).shape[0]
+        self.case_names: List[str] = []  # to keep track the case name of each sample
 
-        self.sensor_positions_dest: str = os.path.join('tensors', 'sensor_positions')
-        self.sensor_timeframes_dest: str = os.path.join('tensors', 'sensor_timeframes')
-        self.sensor_values_dest: str = os.path.join('tensors', 'sensor_values')
-        self.fullstate_timeframes_dest: str = os.path.join('tensors', 'fullstate_timeframes')
-        self.fullstate_values_dest: str = os.path.join('tensors', 'fullstate_values')
+        self.dest: str = os.path.join('tensors', os.path.basename(root))
+        self.sensor_timeframes_dest: str = os.path.join(self.dest, 'sensor_timeframes')
+        self.sensor_values_dest: str = os.path.join(self.dest, 'sensor_values')
+        self.fullstate_timeframes_dest: str = os.path.join(self.dest, 'fullstate_timeframes')
+        self.fullstate_values_dest: str = os.path.join(self.dest, 'fullstate_values')
         
         self.sensor_timeframe_indices = self.__prepare_sensor_timeframe_indices()
         self.__write2disk()
 
     def __getitem__(self, idx: int) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        prefix: str = f'{self.case_names[idx]}_'
         suffix: str = str(idx).zfill(6)
-        sensor_timeframe_tensor: torch.Tensor = torch.load(os.path.join(self.sensor_timeframes_dest, f'ST{suffix}.pt'), weights_only=True)
-        sensor_tensor: torch.Tensor = torch.load(os.path.join(self.sensor_values_dest, f'SV{suffix}.pt'), weights_only=True)
-        fullstate_timeframe_tensor: torch.Tensor = torch.load(os.path.join(self.fullstate_timeframes_dest, f'FT{suffix}.pt'), weights_only=True)
-        fullstate_tensor: torch.Tensor = torch.load(os.path.join(self.fullstate_values_dest, f'FV{suffix}.pt'), weights_only=True)
+        sensor_timeframe_tensor: torch.Tensor = torch.load(
+            os.path.join(self.sensor_timeframes_dest, f'{prefix}st{suffix}.pt'), 
+            weights_only=True
+        )
+        sensor_tensor: torch.Tensor = torch.load(
+            os.path.join(self.sensor_values_dest, f'{prefix}sv{suffix}.pt'), 
+            weights_only=True
+        )
+        fullstate_timeframe_tensor: torch.Tensor = torch.load(
+            os.path.join(self.fullstate_timeframes_dest, f'{prefix}ft{suffix}.pt'), 
+            weights_only=True
+        )
+        fullstate_tensor: torch.Tensor = torch.load(
+            os.path.join(self.fullstate_values_dest, f'{prefix}fv{suffix}.pt'), 
+            weights_only=True
+        )
         return sensor_timeframe_tensor, sensor_tensor, fullstate_timeframe_tensor, fullstate_tensor
     
     def __len__(self) -> int:
@@ -68,8 +82,9 @@ class CFDDataset(Dataset):
     def __write2disk(self) -> None:
 
         # prepare dest directories
-        shutil.rmtree('tensors')
-        os.makedirs(name=self.sensor_positions_dest, exist_ok=True)
+        if os.path.exists(self.dest): 
+            shutil.rmtree(self.dest)
+
         os.makedirs(name=self.sensor_timeframes_dest, exist_ok=True)
         os.makedirs(name=self.sensor_values_dest, exist_ok=True)
         os.makedirs(name=self.fullstate_timeframes_dest, exist_ok=True)
@@ -80,12 +95,10 @@ class CFDDataset(Dataset):
             self.sensor_positions = self.sensor_generator()
         else:
             self.sensor_positions = self.sensor_generator(
-                hw_meters=(0.14, 0.24), center_hw_meters=(0.07, 0.065), radius_meters=0.01,
+                hw_meters=(0.14, 0.24), center_hw_meters=(0.07, 0.065), radius_meters=0.02,
             )
 
         assert self.sensor_positions.shape == (self.sensor_generator.n_sensors, 2)
-        # save sensor for reference (it's not used in model)
-        torch.save(obj=self.sensor_positions, f=os.path.join(self.sensor_positions_dest, 'pos.pt'))
 
         # for case_id, case_dir in enumerate(self.case_directories):
         for case_id, case_dir in enumerate(self.case_directories[:1]):
@@ -95,7 +108,8 @@ class CFDDataset(Dataset):
                     torch.from_numpy(np.load(os.path.join(case_dir, 'v.npy')))
                 ],
                 dim=1
-            )
+            ).float()
+            
             # sensor data
             sensor_data: torch.Tensor = data[self.sensor_timeframe_indices]
             n_chunks: int = sensor_data.shape[0]
@@ -120,14 +134,19 @@ class CFDDataset(Dataset):
                 assert fullstate_timeframe_indices.shape == (n_chunks, self.n_fullstate_timeframes_per_chunk)
 
                 for idx in tqdm.tqdm(range(n_chunks), desc=f'Case {case_id + 1} | Sampling {sampling_id + 1}: '):
+                    # case name
+                    case_name: str = os.path.basename(case_dir)
+                    prefix: str = f'{case_name}_'
+                    self.case_names.append(case_name)
+                    # index
                     true_idx: int = idx + sampling_id * n_chunks + case_id * n_chunks * self.n_samplings_per_chunk
                     suffix = str(true_idx).zfill(6)
                     # save sensor timeframes, sensor value (dynamic to chunks, but constant to samplings)
-                    torch.save(obj=self.sensor_timeframe_indices[idx].clone(), f=os.path.join(self.sensor_timeframes_dest, f'ST{suffix}.pt'))
-                    torch.save(obj=sensor_data[idx].clone(), f=os.path.join(self.sensor_values_dest, f'SV{suffix}.pt'))
+                    torch.save(obj=self.sensor_timeframe_indices[idx].clone(), f=os.path.join(self.sensor_timeframes_dest, f'{prefix}st{suffix}.pt'))
+                    torch.save(obj=sensor_data[idx].clone(), f=os.path.join(self.sensor_values_dest, f'{prefix}sv{suffix}.pt'))
                     # save sensor value, fullstate timeframes, fullstate data (fully dynamic)
-                    torch.save(obj=fullstate_timeframe_indices[idx].clone(), f=os.path.join(self.fullstate_timeframes_dest, f'FT{suffix}.pt'))
-                    torch.save(obj=fullstate_data[idx].clone(), f=os.path.join(self.fullstate_values_dest, f'FV{suffix}.pt'))
+                    torch.save(obj=fullstate_timeframe_indices[idx].clone(), f=os.path.join(self.fullstate_timeframes_dest, f'{prefix}ft{suffix}.pt'))
+                    torch.save(obj=fullstate_data[idx].clone(), f=os.path.join(self.fullstate_values_dest, f'{prefix}fv{suffix}.pt'))
             
     def __prepare_sensor_timeframe_indices(self) -> torch.LongTensor:
         # compute number of steps to reach n_timeframes (also the number of chunks)
@@ -142,7 +161,6 @@ class CFDDataset(Dataset):
         n_chunks = self.total_timeframes_per_case - max(self.init_sensor_timeframe_indices)
         # prepare fullstate timeframe indices (stochastic)
         torch.random.manual_seed(seed=seed)
-        # TODO: each chunk could multiply to multiple samples
         random_init_timeframe_indices: torch.Tensor = torch.randperm(
             n=max(self.init_sensor_timeframe_indices)
         )[:self.n_fullstate_timeframes_per_chunk]
@@ -158,7 +176,7 @@ if __name__ == '__main__':
     embedding_generator = Voronoi(weighted=False)
 
     self = CFDDataset(
-        root='./bc', 
+        root='./data/val', 
         init_sensor_timeframe_indices=[0, 5, 10, 15, 20, 25, 30, 35, 40, 45, 50],
         n_fullstate_timeframes_per_chunk=10,
         n_samplings_per_chunk=5,
