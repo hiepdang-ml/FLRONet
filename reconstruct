@@ -1,0 +1,6 @@
+#!/bin/bash
+
+CONFIG="config.yaml"
+
+echo "Start Reconstructing..."
+python cli/reconstruct.py --config="$CONFIG"
