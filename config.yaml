@@ -29,5 +29,6 @@ training:
   save_frequency: 1
 
 predict:
+  data: './data/test'
   from_checkpoint: '.checkpoints/epoch10.pt'
 
