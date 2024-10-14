@@ -1,5 +1,4 @@
 dataset:
-  root: 'data'
   init_sensor_timeframe_indices: [0, 5, 10, 15, 20, 25, 30, 35, 40, 45, 50]
   n_fullstate_timeframes_per_chunk: 10
   n_samplings_per_chunk: 1
@@ -10,26 +9,25 @@ dataset:
   seed: 1
 
 architecture:
-  embedding_dim: 1536
-  n_layers: 12
-  block_size: 384
-  patch_size: [8, 8]
-  dropout_rate: 0.
+  n_channels: 2
+  n_afno_layers: 8
+  embedding_dim: 2048
+  block_size: 256
+  dropout_rate: 0.1
+  n_stacked_networks: 16
   from_checkpoint: null   # set to null to train from scratch
 
 training:
   train_batch_size: 4
   val_batch_size: 2
   learning_rate: 5e-4
+  a: 10.
+  r: 0.01
   n_epochs: 1000
   patience: 50
   tolerance: 0.
   save_frequency: 1
 
 predict:
-  ondate: '20240906'
-  from_global_checkpoint: '.checkpoints/global/epoch55.pt'
-  from_local_checkpoint: '.checkpoints/local/epoch20.pt'
-  global_plot_resolution: null   # set to null to respect the true resolution
-  local_plot_resolution: null   # set to null to respect the true resolution
+  from_checkpoint: '.checkpoints/epoch10.pt'
 

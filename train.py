@@ -1,17 +1,15 @@
 import argparse
-from typing import Tuple, Dict, Any, Optional
+from typing import List, Dict, Any, Optional
 
 import yaml
-
-import torch
-import torch.nn as nn
-from torch.utils.data import random_split
 from torch.optim import Optimizer, Adam
 
-from models.operators import GlobalOperator
-from era5.datasets import ERA5_6Hour
+from sensors import LHS, AroundCylinder
+from embeddings import Mask, Voronoi
+from models import FLRONet
+from datasets import CFDDataset
 from common.training import CheckpointLoader
-from workers.trainer import GlobalOperatorTrainer
+from workers import Trainer
 
 
 def main(config: Dict[str, Any]) -> None:
@@ -23,92 +21,101 @@ def main(config: Dict[str, Any]) -> None:
     """
 
     # Parse CLI arguments:
-    global_latitude: Tuple[float, float] = tuple(config['dataset']['global_latitude'])
-    global_longitude: Tuple[float, float] = tuple(config['dataset']['global_longitude'])
-    global_resolution: Tuple[int, int]  = tuple(config['dataset']['global_resolution'])
-    train_fromyear: str                 = int(config['dataset']['train_fromyear'])
-    train_toyear: str                   = int(config['dataset']['train_toyear'])
-    val_fromyear: str                   = int(config['dataset']['val_fromyear'])
-    val_toyear: str                     = int(config['dataset']['val_toyear'])
-    indays: int                         = int(config['dataset']['indays'])
-    outdays: int                        = int(config['dataset']['outdays'])
+    init_sensor_timeframe_indices: List[int]    = list(config['dataset']['init_sensor_timeframe_indices'])
+    n_fullstate_timeframes_per_chunk: int       = int(config['dataset']['n_fullstate_timeframes_per_chunk'])
+    n_samplings_per_chunk: int                  = int(config['dataset']['n_samplings_per_chunk'])
+    resolution: tuple                           = tuple(config['dataset']['resolution'])
+    n_sensors: int                              = int(config['dataset']['n_sensors'])
+    sensor_generator: str                       = str(config['dataset']['sensor_generator'])
+    embedding_generator: str                    = str(config['dataset']['embedding_generator'])
+    seed: int                                   = int(config['dataset']['seed'])
 
-    embedding_dim: int                  = int(config['global_architecture']['embedding_dim'])
-    n_layers: int                       = int(config['global_architecture']['n_layers'])
-    block_size: int                     = int(config['global_architecture']['block_size'])
-    patch_size: int                     = tuple(config['global_architecture']['patch_size'])
-    dropout_rate: float                 = float(config['global_architecture']['dropout_rate'])
-    from_checkpoint: Optional[str]      = config['global_architecture']['from_checkpoint']
+    n_channels: int                             = int(config['architecture']['n_channels'])
+    n_afno_layers: int                          = int(config['architecture']['n_afno_layers'])
+    embedding_dim: int                          = int(config['architecture']['embedding_dim'])
+    block_size: int                             = int(config['architecture']['block_size'])
+    dropout_rate: float                         = float(config['architecture']['dropout_rate'])
+    n_stacked_networks: int                     = int(config['architecture']['n_stacked_networks'])
+    from_checkpoint: Optional[str]              = config['architecture']['from_checkpoint']
     
-    noise_level: float                  = float(config['training']['noise_level'])
-    train_batch_size: int               = int(config['training']['train_batch_size'])
-    val_batch_size: int                 = int(config['training']['val_batch_size'])
-    learning_rate: float                = float(config['training']['learning_rate'])
-    n_epochs: int                       = int(config['training']['n_epochs'])
-    patience: int                       = int(config['training']['patience'])
-    tolerance: int                      = float(config['training']['tolerance'])
-    save_frequency: int                 = int(config['training']['save_frequency'])
+    train_batch_size: int                       = int(config['training']['train_batch_size'])
+    val_batch_size: int                         = int(config['training']['val_batch_size'])
+    learning_rate: float                        = float(config['training']['learning_rate'])
+    a: float                                    = float(config['training']['a'])
+    r: float                                    = float(config['training']['r'])
+    n_epochs: int                               = int(config['training']['n_epochs'])
+    patience: int                               = int(config['training']['patience'])
+    tolerance: int                              = float(config['training']['tolerance'])
+    save_frequency: int                         = int(config['training']['save_frequency'])
+
+    # Instatiate the sensor generator
+    if sensor_generator == 'AroundCylinder':
+        sensor_generator = AroundCylinder(resolution, n_sensors)
+    elif sensor_generator == 'LHS':
+        sensor_generator = LHS(resolution, n_sensors)
+    else:
+        raise ValueError(f'Invalid sensor_generator: {sensor_generator}')
+
+    # Instatiate the embedding generator
+    if embedding_generator == 'Mask':
+        embedding_generator = Mask()
+    elif embedding_generator == 'Voronoi':
+        embedding_generator = Voronoi()
+    else:
+        raise ValueError(f'Invalid embedding_generator: {embedding_generator}')
 
     # Instatiate the training datasets
-    train_dataset = ERA5_6Hour(
-        fromyear=train_fromyear,
-        toyear=train_toyear,
-        global_latitude=global_latitude,
-        global_longitude=global_longitude,
-        global_resolution=global_resolution,
-        local_latitude=None,
-        local_longitude=None,
-        indays=indays,
-        outdays=outdays,
+    train_dataset = CFDDataset(
+        root='./data/train', 
+        init_sensor_timeframe_indices=init_sensor_timeframe_indices,
+        n_fullstate_timeframes_per_chunk=n_fullstate_timeframes_per_chunk,
+        n_samplings_per_chunk=n_samplings_per_chunk,
+        resolution=resolution,
+        sensor_generator=sensor_generator, 
+        embedding_generator=embedding_generator,
+        seed=seed,
     )
-    val_dataset = ERA5_6Hour(
-        fromyear=val_fromyear,
-        toyear=val_toyear,
-        global_latitude=global_latitude,
-        global_longitude=global_longitude,
-        global_resolution=global_resolution,
-        local_latitude=None,
-        local_longitude=None,
-        indays=indays,
-        outdays=outdays,
+    val_dataset = CFDDataset(
+        root='./data/val', 
+        init_sensor_timeframe_indices=init_sensor_timeframe_indices,
+        n_fullstate_timeframes_per_chunk=n_fullstate_timeframes_per_chunk,
+        n_samplings_per_chunk=n_samplings_per_chunk,
+        resolution=resolution,
+        sensor_generator=sensor_generator, 
+        embedding_generator=embedding_generator,
+        seed=seed,
     )
 
-    # Load global operator
+    # Load the model
     if from_checkpoint is not None:
         checkpoint_loader = CheckpointLoader(checkpoint_path=from_checkpoint)
-        operator: GlobalOperator = checkpoint_loader.load(scope=globals())[0]   # ignore optimizer
+        net: FLRONet = checkpoint_loader.load(scope=globals())[0].cuda()    # ignore optimizer
     else:
-        operator = GlobalOperator(
-            in_channels=train_dataset.in_channels, 
-            out_channels=train_dataset.out_channels,
-            embedding_dim=embedding_dim,
-            in_timesteps=train_dataset.in_timesteps, 
-            out_timesteps=train_dataset.out_timesteps,
-            n_layers=n_layers,
-            spatial_resolution=train_dataset.global_resolution,
-            block_size=block_size, 
-            patch_size=patch_size,
-            dropout_rate=dropout_rate,
-        )
+        net = FLRONet(
+            n_channels=n_channels, n_afno_layers=n_afno_layers, 
+            embedding_dim=embedding_dim, block_size=block_size, 
+            dropout_rate=dropout_rate, 
+            n_fullstate_timeframes=n_fullstate_timeframes_per_chunk, 
+            n_sensor_timeframes=len(init_sensor_timeframe_indices), 
+            resolution=resolution,
+            n_stacked_networks=n_stacked_networks,
+        ).cuda()
         
-    optimizer = Adam(params=operator.parameters(), lr=learning_rate)
-
     # Load global trainer    
-    trainer = GlobalOperatorTrainer(
-        global_operator=operator, 
-        optimizer=optimizer,
-        noise_level=noise_level,
-        train_dataset=train_dataset, 
+    trainer = Trainer(
+        net=net, 
+        lr=learning_rate,
+        a=a, r=r,
+        train_dataset=train_dataset,
         val_dataset=val_dataset,
-        train_batch_size=train_batch_size, 
+        train_batch_size=train_batch_size,
         val_batch_size=val_batch_size,
-        device=torch.device('cuda'),
     )
     trainer.train(
         n_epochs=n_epochs, 
         patience=patience,
         tolerance=tolerance, 
-        checkpoint_path=f'.checkpoints/global',
+        checkpoint_path=f'.checkpoints',
         save_frequency=save_frequency,
     )
 
@@ -116,7 +123,7 @@ def main(config: Dict[str, Any]) -> None:
 if __name__ == "__main__":
 
     # Initialize the argument parser
-    parser = argparse.ArgumentParser(description='Train the Global Operator')
+    parser = argparse.ArgumentParser(description='Train FLRONet')
     parser.add_argument('--config', type=str, required=True, help='Configuration file name.')
 
     args: argparse.Namespace = parser.parse_args()

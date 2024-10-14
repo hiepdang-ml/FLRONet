@@ -15,7 +15,8 @@ def plot_frame(
     fullstate_frame: torch.Tensor | None = None,
     reconstruction_frame: torch.Tensor | None = None,
     reduction: Callable[[torch.Tensor], torch.Tensor] | None = None,
-    sufix: str = '',
+    prefix: str = '',
+    suffix: str = '',
 ) -> None:
     
     if sensor_positions is not None:
@@ -28,15 +29,15 @@ def plot_frame(
 
     if sensor_frame is not None:
         frames_to_plot.append(sensor_frame)
-        titles.append(f"Sensor Frame {sufix}")
+        titles.append(f"{prefix} Sensor Frame {suffix}")
         
     if fullstate_frame is not None:
         frames_to_plot.append(fullstate_frame)
-        titles.append(f"Full State Frame {sufix}")
+        titles.append(f"{prefix} Full State Frame {suffix}")
         
     if reconstruction_frame is not None:
         frames_to_plot.append(reconstruction_frame)
-        titles.append(f"Reconstruction Frame {sufix}")
+        titles.append(f"{prefix} Reconstruction Frame {suffix}")
 
     frame_shapes = [frame.shape for frame in frames_to_plot]
     assert all(shape == frame_shapes[0] for shape in frame_shapes), "All provided frames must have the same shape."

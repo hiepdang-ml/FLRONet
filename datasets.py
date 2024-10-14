@@ -44,7 +44,8 @@ class CFDDataset(Dataset):
         self.H, self.W = resolution
         self.n_sensor_timeframes_per_chunk: int = len(init_sensor_timeframe_indices)
         self.total_timeframes_per_case: int = np.load(os.path.join(self.case_directories[0], 'u.npy')).shape[0]
-        self.case_names: List[str] = []  # to keep track the case name of each sample
+        self.case_names: List[str] = []     # to keep track of the case name of each sample
+        self.sampling_ids: List[int] = []   # to keep track of the sampling id of each sample
 
         self.dest: str = os.path.join('tensors', os.path.basename(root))
         self.sensor_timeframes_dest: str = os.path.join(self.dest, 'sensor_timeframes')
@@ -74,7 +75,9 @@ class CFDDataset(Dataset):
             os.path.join(self.fullstate_values_dest, f'{prefix}fv{suffix}.pt'), 
             weights_only=True
         )
-        return sensor_timeframe_tensor, sensor_tensor, fullstate_timeframe_tensor, fullstate_tensor
+        case_name: str = self.case_names[idx]
+        sampling_id: int = self.sampling_ids[idx]
+        return sensor_timeframe_tensor, sensor_tensor, fullstate_timeframe_tensor, fullstate_tensor, case_name, sampling_id
     
     def __len__(self) -> int:
         return len([f for f in os.listdir(self.fullstate_values_dest) if f.endswith('.pt')])
@@ -134,10 +137,10 @@ class CFDDataset(Dataset):
                 assert fullstate_timeframe_indices.shape == (n_chunks, self.n_fullstate_timeframes_per_chunk)
 
                 for idx in tqdm.tqdm(range(n_chunks), desc=f'Case {case_id + 1} | Sampling {sampling_id + 1}: '):
-                    # case name
+                    # case name & sampling id
                     case_name: str = os.path.basename(case_dir)
-                    prefix: str = f'{case_name}_'
                     self.case_names.append(case_name)
+                    prefix: str = f'{case_name}_{sampling_id + 1}_'
                     # index
                     true_idx: int = idx + sampling_id * n_chunks + case_id * n_chunks * self.n_samplings_per_chunk
                     suffix = str(true_idx).zfill(6)

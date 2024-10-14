@@ -121,7 +121,7 @@ class Trainer(Worker):
         for epoch in range(1, n_epochs + 1):
             timer.start_epoch(epoch)
             for batch, (
-                sensor_timeframes, sensor_frames, fullstate_timeframes, fullstate_frames
+                sensor_timeframes, sensor_frames, fullstate_timeframes, fullstate_frames, _, _
             ) in enumerate(self.train_dataloader, start=1):
                 timer.start_batch(epoch, batch)
                 # Data validation
@@ -201,7 +201,7 @@ class Trainer(Worker):
         val_metrics = Accumulator()
         self.net.eval()
         with torch.no_grad():
-            for sensor_timeframes, sensor_frames, fullstate_timeframes, fullstate_frames in self.val_dataloader:
+            for sensor_timeframes, sensor_frames, fullstate_timeframes, fullstate_frames, _, _ in self.val_dataloader:
                 # Data validation
                 self._validate_inputs(sensor_timeframes, sensor_frames, fullstate_timeframes, fullstate_frames)
                 # Move to GPU
@@ -247,7 +247,7 @@ class Predictor(Worker):
             shuffle=False
         )
         with torch.no_grad():
-            for sensor_timeframes, sensor_frames, fullstate_timeframes, fullstate_frames in dataloader:
+            for sensor_timeframes, sensor_frames, fullstate_timeframes, fullstate_frames, case_name, sampling_id in dataloader:
                 # Data validation
                 self._validate_inputs(sensor_timeframes, sensor_frames, fullstate_timeframes, fullstate_frames)
                 # Move to GPU
@@ -275,6 +275,7 @@ class Predictor(Worker):
                         fullstate_frame=fullstate_frames[frame_idx], 
                         reconstruction_frame=reconstruction_frames[frame_idx],
                         reduction=lambda x: compute_velocity_field(x, dim=0),
-                        sufix=f"at t={at_timeframe * 0.001}s (frame {at_timeframe})"
+                        prefix=f'{case_name.upper()}, Samping {sampling_id}\n',
+                        suffix=f"at t={at_timeframe * 0.001}s (frame {at_timeframe})"
                     )
 
