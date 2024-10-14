@@ -1,5 +1,5 @@
 import argparse
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any
 
 import yaml
 from torch.optim import Optimizer, Adam

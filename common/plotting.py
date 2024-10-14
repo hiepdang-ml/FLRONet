@@ -1,5 +1,5 @@
 import os
-from typing import List, Tuple, Optional, Callable
+from typing import Callable
 
 import datetime as dt
 import matplotlib.pyplot as plt
@@ -100,10 +100,10 @@ def plot_frame(
 
 if __name__ == '__main__':
 
-    from functional import compute_velocity_field
-    from datasets import CFDDataset
-    from sensors import LHS, AroundCylinder
-    from embeddings import Mask, Voronoi
+    from common.functional import compute_velocity_field
+    from cfd.dataset import CFDDataset
+    from cfd.sensors import LHS, AroundCylinder
+    from cfd.embedding import Mask, Voronoi
     
     # sensor_generator = LHS(spatial_shape=(140, 240), n_sensors=32)
     sensor_generator = AroundCylinder(resolution=(140, 240), n_sensors=64)

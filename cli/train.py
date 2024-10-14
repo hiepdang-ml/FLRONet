@@ -6,7 +6,7 @@ from torch.optim import Optimizer, Adam
 
 from cfd.sensors import LHS, AroundCylinder
 from cfd.embedding import Mask, Voronoi
-from models.flronet import FLRONet
+from model import FLRONet
 from cfd.dataset import CFDDataset
 from common.training import CheckpointLoader
 from worker import Trainer

@@ -9,11 +9,11 @@ from torch.optim import AdamW
 from torch.amp import autocast, GradScaler
 
 from common.training import Accumulator, EarlyStopping, Timer, Logger, CheckpointSaver
-from datasets import CFDDataset
-from models import FLRONet
-from losses import CustomMSE
-from plotting import plot_frame
-from functional import compute_velocity_field
+from cfd.dataset import CFDDataset
+from model import FLRONet
+from model.losses import CustomMSE
+from common.plotting import plot_frame
+from common.functional import compute_velocity_field
 
 
 class Worker:

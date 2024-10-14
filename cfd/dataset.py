@@ -1,5 +1,5 @@
 import os
-from typing import List, Tuple, Optional
+from typing import List, Tuple
 import shutil
 import tqdm
 
@@ -8,8 +8,8 @@ import torch
 from torch.utils.data import Dataset
 import torch.nn.functional as F
 
-from sensors import LHS, AroundCylinder
-from embeddings import Voronoi, Mask
+from cfd.sensors import LHS, AroundCylinder
+from cfd.embedding import Voronoi, Mask
 
 
 class CFDDataset(Dataset):

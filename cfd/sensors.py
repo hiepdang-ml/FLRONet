@@ -1,7 +1,7 @@
 import os
 from abc import ABC, abstractmethod
 from typing import List, Tuple
-from functools import cache, cached_property
+from functools import cache
 
 import numpy as np
 import torch

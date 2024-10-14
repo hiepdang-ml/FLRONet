@@ -3,7 +3,7 @@ from typing import List, Tuple
 import torch
 import torch.nn as nn
 
-from modules import AFNOLayer
+from model.modules import AFNOLayer
 
 
 class StackedBranchNet(nn.Module):
@@ -171,9 +171,9 @@ class FLRONet(nn.Module):
 if __name__ == '__main__':
 
     from torch.utils.data import DataLoader
-    from embeddings import Mask, Voronoi
-    from sensors import AroundCylinder, LHS
-    from datasets import CFDDataset
+    from cfd.embedding import Mask, Voronoi
+    from cfd.sensors import AroundCylinder, LHS
+    from cfd.dataset import CFDDataset
 
     # sensor_generator = LHS(spatial_shape=(64, 64), n_sensors=32)
     sensor_generator = AroundCylinder(resolution=(64, 64), n_sensors=32)

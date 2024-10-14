@@ -6,7 +6,7 @@ from torch.optim import Optimizer, Adam
 
 from cfd.sensors import LHS, AroundCylinder
 from cfd.embedding import Mask, Voronoi
-from models.flronet import FLRONet
+from model.flronet import FLRONet
 from cfd.dataset import CFDDataset
 from common.training import CheckpointLoader
 from worker import Trainer
@@ -14,7 +14,7 @@ from worker import Trainer
 
 def main(config: Dict[str, Any]) -> None:
     """
-    Main function to train FLRONet.
+    Main function to inference FLRONet.
 
     Parameters:
         config (Dict[str, Any]): Configuration dictionary.

@@ -70,9 +70,9 @@ if __name__ == '__main__':
 
     from torch.utils.data import DataLoader
 
-    from datasets import CFDDataset
-    from sensors import LHS, AroundCylinder
-    from embeddings import Mask, Voronoi
+    from cfd.dataset import CFDDataset
+    from cfd.sensors import LHS, AroundCylinder
+    from cfd.embedding import Mask, Voronoi
     
     # sensor_generator = LHS(spatial_shape=(140, 240), n_sensors=32)
     sensor_generator = AroundCylinder(resolution=(140, 240), n_sensors=64)
