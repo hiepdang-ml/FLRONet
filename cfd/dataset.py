@@ -134,7 +134,7 @@ class CFDTrainDataset(Dataset):
 
         sensor_timeframes_list: List[List[int]] = []
         fullstate_timeframes_list: List[List[int]] = []
-        for case_id, case_dir in enumerate(self.case_directories[1:]):  # case0000 only has 620 frames, others have 1000
+        for case_id, case_dir in enumerate(self.case_directories):
             data: torch.Tensor = torch.stack(
                 tensors=[
                     torch.from_numpy(np.load(os.path.join(case_dir, 'u.npy'))),
