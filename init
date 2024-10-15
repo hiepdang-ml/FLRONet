@@ -20,6 +20,9 @@ unzip bc.zip -d bc
 unzip prop.zip -d prop
 rm *.zip
 
+# Remove case0000 since it only has 620 frames, others have 1000
+rm -r data/bc/case0000
+
 # Move to 'raw' directory
 mkdir -p data
 mv bc data

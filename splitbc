@@ -8,7 +8,7 @@ export test_dir="data/test"
 
 export n_train=40
 export n_val=5
-export n_test=5
+export n_test=4
 
 ##############################
 
