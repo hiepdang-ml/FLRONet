@@ -11,14 +11,12 @@ class SensorGenerator(ABC):
 
     def __init__(
         self, 
-        resolution: Tuple[int, int], 
         n_sensors: int, 
     ) -> None:
         super().__init__()
-        self.resolution: Tuple[int, int] = resolution
         self.n_sensors: int = n_sensors
-        self.n_dims: int = len(resolution)
         self.__seed: int = 0
+        self.__resolution: Tuple[int, int] | None = None
 
     @abstractmethod
     def __call__(self) -> torch.Tensor:
@@ -32,25 +30,34 @@ class SensorGenerator(ABC):
     def seed(self, value: int) -> None:
         self.__seed = value
 
+    @property
+    def resolution(self) -> Tuple[int, int]:
+        return self.__resolution
+    
+    @resolution.setter
+    def resolution(self, value: Tuple[int, int]) -> None:
+        self.__resolution = value
+
 
 class LHS(SensorGenerator):
 
     # implement
     @cache
     def __call__(self) -> torch.Tensor:
+        assert self.resolution is not None, 'self.resolution must be set before calling a SensorGenerator'
         lhs_samples: np.ndarray = self._sampling()
         # absolute positions
-        sensor_positions: torch.Tensor = torch.zeros((self.n_sensors, self.n_dims), dtype=torch.int32)
+        sensor_positions: torch.Tensor = torch.zeros((self.n_sensors, len(self.resolution)), dtype=torch.int32)
         for sensor in range(self.n_sensors):
-            for dim in range(self.n_dims):
+            for dim in range(len(self.resolution)):
                 sensor_positions[sensor, dim] = int(lhs_samples[sensor, dim] * self.resolution[dim])
 
         return sensor_positions
 
     def _sampling(self) -> np.ndarray:
         np.random.seed(self.seed)
-        samples = np.zeros((self.n_sensors, self.n_dims))
-        for dim in range(self.n_dims):
+        samples = np.zeros((self.n_sensors, len(self.resolution)))
+        for dim in range(len(self.resolution)):
             segment_size = 1.0 / self.n_sensors
             segment_starts = np.arange(0, 1, segment_size)
             shuffled_segments: np.ndarray = np.random.permutation(segment_starts)
@@ -72,37 +79,36 @@ class AroundCylinder(SensorGenerator):
         center_hw_meters: Tuple[float, float],
         radius_meters: float, 
     ) -> torch.Tensor:
-        
-        assert self.n_dims == 2, 'AroundCylinder only works in 2D space'
+        assert self.resolution is not None, 'self.resolution must be set before calling a SensorGenerator'
+        assert len(self.resolution) == 2, 'AroundCylinder only works in 2D space'
         np.random.seed(self.seed)
-        samples: np.ndarray = LHS(
-            resolution=(360,), n_sensors=self.n_sensors,
-        )._sampling().flatten()
+        lhs = LHS(n_sensors=self.n_sensors); lhs.resolution = (360,)
+        samples: np.ndarray = lhs._sampling().flatten()
         samples = samples * 360
         # compute meters per pixel
-        h_scale = hw_meters[0] / self.resolution[0]
-        w_scale = hw_meters[1] / self.resolution[1]
+        h_scale: float = hw_meters[0] / self.resolution[0]
+        w_scale: float = hw_meters[1] / self.resolution[1]
         # compute radius of the cylinder
-        radius_h_pixels = radius_meters / h_scale
-        radius_w_pixels = radius_meters / w_scale
+        radius_w_pixels: float = radius_meters / w_scale
+        radius_h_pixels: float = radius_meters / h_scale
         # compute center of the cylinder
-        center_h_pixels = center_hw_meters[0] / h_scale
-        center_w_pixels = center_hw_meters[1] / w_scale
-
-        sensor_positions: torch.Tensor = torch.zeros((self.n_sensors, self.n_dims), dtype=torch.int32)
+        center_h_pixels: float = center_hw_meters[0] / h_scale
+        center_w_pixels: float = center_hw_meters[1] / w_scale
+        # compute sensor positions
+        sensor_positions: torch.Tensor = torch.zeros((self.n_sensors, len(self.resolution)), dtype=torch.int32)
         sensor_positions[:, 0] = torch.from_numpy(np.cos(np.deg2rad(samples)) * radius_h_pixels + center_h_pixels)
         sensor_positions[:, 1] = torch.from_numpy(np.sin(np.deg2rad(samples)) * radius_w_pixels + center_w_pixels)
-
         return sensor_positions
 
 
 
 if __name__ == '__main__':
     resolution = (256, 512)
-    # self = LHS(resolution=(140, 240), n_sensors=32)
+    # self = LHS(n_sensors=32)
     # sensor_positions = self.generate()
 
-    self = AroundCylinder(resolution=resolution, n_sensors=32)
+    self = AroundCylinder(n_sensors=32)
+    self.resolution = resolution
     sensor_positions = self(hw_meters=(0.14, 0.24), center_hw_meters=(0.08, 0.08), radius_meters=0.01)
     import matplotlib.pyplot as plt
 

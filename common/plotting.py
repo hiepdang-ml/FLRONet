@@ -63,7 +63,10 @@ def plot_frame(
         axs = [axs]  # Ensure axs is iterable if only one subplot
     
     # Plot each frame
-    max_value: float = max([frame.max().item() for frame in frames_to_plot])
+    if fullstate_frame is not None:
+        max_value: float = fullstate_frame.max().item()
+    else:
+        max_value: float = max([frame.max().item() for frame in frames_to_plot])
     for frame, ax, title in zip(frames_to_plot, axs, titles):
         ax.imshow(
             frame.squeeze(dim=0),
@@ -101,27 +104,28 @@ def plot_frame(
 if __name__ == '__main__':
 
     from common.functional import compute_velocity_field
-    from cfd.dataset import CFDDataset
+    from cfd.dataset import CFDTrainDataset
     from cfd.sensors import LHS, AroundCylinder
     from cfd.embedding import Mask, Voronoi
     
-    # sensor_generator = LHS(spatial_shape=(140, 240), n_sensors=32)
-    sensor_generator = AroundCylinder(resolution=(140, 240), n_sensors=64)
+    # sensor_generator = LHS(n_sensors=32)
+    sensor_generator = AroundCylinder(n_sensors=32)
     # embedding_generator = Mask()
     embedding_generator = Voronoi(weighted=False)
 
-    dataset = CFDDataset(
+    dataset = CFDTrainDataset(
         root='./data/val', 
-        init_sensor_timeframe_indices=[0, 5, 10, 15, 20, 25, 30, 35, 40, 45, 50],
+        init_sensor_timeframes=[0, 10, 20, 30, 40, 50],
         n_fullstate_timeframes_per_chunk=10,
         n_samplings_per_chunk=1,
-        resolution=(140, 240),
+        resolution=(105, 180),
         sensor_generator=sensor_generator, 
         embedding_generator=embedding_generator,
         seed=1,
+        already_preloaded=False,
     )
 
-    sensor_timeframe_tensor, sensor_tensor, fullstate_timeframe_tensor, fullstate_tensor = dataset[0]
+    sensor_timeframe_tensor, sensor_tensor, fullstate_timeframe_tensor, fullstate_tensor, _, _ = dataset[500]
     sensor_positions = dataset.sensor_positions
 
     plot_frame(

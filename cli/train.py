@@ -7,7 +7,7 @@ from torch.optim import Optimizer, Adam
 from cfd.sensors import LHS, AroundCylinder
 from cfd.embedding import Mask, Voronoi
 from model import FLRONet
-from cfd.dataset import CFDDataset
+from cfd.dataset import CFDTrainDataset
 from common.training import CheckpointLoader
 from worker import Trainer
 
@@ -21,7 +21,7 @@ def main(config: Dict[str, Any]) -> None:
     """
 
     # Parse CLI arguments:
-    init_sensor_timeframe_indices: List[int]    = list(config['dataset']['init_sensor_timeframe_indices'])
+    init_sensor_timeframes: List[int]           = list(config['dataset']['init_sensor_timeframes'])
     n_fullstate_timeframes_per_chunk: int       = int(config['dataset']['n_fullstate_timeframes_per_chunk'])
     n_samplings_per_chunk: int                  = int(config['dataset']['n_samplings_per_chunk'])
     resolution: tuple                           = tuple(config['dataset']['resolution'])
@@ -29,6 +29,7 @@ def main(config: Dict[str, Any]) -> None:
     sensor_generator: str                       = str(config['dataset']['sensor_generator'])
     embedding_generator: str                    = str(config['dataset']['embedding_generator'])
     seed: int                                   = int(config['dataset']['seed'])
+    already_preloaded: bool                     = bool(config['dataset']['already_preloaded'])
 
     n_channels: int                             = int(config['architecture']['n_channels'])
     n_afno_layers: int                          = int(config['architecture']['n_afno_layers'])
@@ -50,9 +51,9 @@ def main(config: Dict[str, Any]) -> None:
 
     # Instatiate the sensor generator
     if sensor_generator == 'AroundCylinder':
-        sensor_generator = AroundCylinder(resolution, n_sensors)
+        sensor_generator = AroundCylinder(n_sensors)
     elif sensor_generator == 'LHS':
-        sensor_generator = LHS(resolution, n_sensors)
+        sensor_generator = LHS(n_sensors)
     else:
         raise ValueError(f'Invalid sensor_generator: {sensor_generator}')
 
@@ -65,25 +66,27 @@ def main(config: Dict[str, Any]) -> None:
         raise ValueError(f'Invalid embedding_generator: {embedding_generator}')
 
     # Instatiate the training datasets
-    train_dataset = CFDDataset(
+    train_dataset = CFDTrainDataset(
         root='./data/train', 
-        init_sensor_timeframe_indices=init_sensor_timeframe_indices,
+        init_sensor_timeframes=init_sensor_timeframes,
         n_fullstate_timeframes_per_chunk=n_fullstate_timeframes_per_chunk,
         n_samplings_per_chunk=n_samplings_per_chunk,
         resolution=resolution,
         sensor_generator=sensor_generator, 
         embedding_generator=embedding_generator,
         seed=seed,
+        already_preloaded=already_preloaded,
     )
-    val_dataset = CFDDataset(
+    val_dataset = CFDTrainDataset(
         root='./data/val', 
-        init_sensor_timeframe_indices=init_sensor_timeframe_indices,
+        init_sensor_timeframes=init_sensor_timeframes,
         n_fullstate_timeframes_per_chunk=n_fullstate_timeframes_per_chunk,
         n_samplings_per_chunk=n_samplings_per_chunk,
         resolution=resolution,
         sensor_generator=sensor_generator, 
         embedding_generator=embedding_generator,
         seed=seed,
+        already_preloaded=already_preloaded,
     )
 
     # Load the model
@@ -96,7 +99,8 @@ def main(config: Dict[str, Any]) -> None:
             embedding_dim=embedding_dim, block_size=block_size, 
             dropout_rate=dropout_rate, 
             n_fullstate_timeframes=n_fullstate_timeframes_per_chunk, 
-            n_sensor_timeframes=len(init_sensor_timeframe_indices), 
+            n_sensor_timeframes=len(init_sensor_timeframes), 
+            total_timeframes=train_dataset.total_timeframes_per_case,
             resolution=resolution,
             n_stacked_networks=n_stacked_networks,
         ).cuda()
@@ -121,13 +125,10 @@ def main(config: Dict[str, Any]) -> None:
 
 
 if __name__ == "__main__":
-
     # Initialize the argument parser
     parser = argparse.ArgumentParser(description='Train FLRONet')
     parser.add_argument('--config', type=str, required=True, help='Configuration file name.')
-
     args: argparse.Namespace = parser.parse_args()
-    
     # Load the configuration
     with open(file=args.config, mode='r') as f:
         config: Dict[str, Any] = yaml.safe_load(f)

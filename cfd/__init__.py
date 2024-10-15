@@ -1,1 +1,1 @@
-from dataset import CFDDataset
+from .dataset import CFDTrainDataset

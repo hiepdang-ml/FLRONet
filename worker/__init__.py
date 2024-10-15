@@ -1,1 +1,1 @@
-from worker import Trainer, Predictor
+from .workers import Trainer, Predictor

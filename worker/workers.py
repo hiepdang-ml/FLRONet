@@ -1,15 +1,16 @@
 from abc import ABC, abstractmethod
 from typing import List, Tuple, Optional
 from functools import cached_property
+from tqdm import tqdm
 
 import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader
-from torch.optim import AdamW
+from torch.optim import Adam
 from torch.amp import autocast, GradScaler
 
 from common.training import Accumulator, EarlyStopping, Timer, Logger, CheckpointSaver
-from cfd.dataset import CFDDataset
+from cfd.dataset import CFDTrainDataset
 from model import FLRONet
 from model.losses import CustomMSE
 from common.plotting import plot_frame
@@ -29,9 +30,8 @@ class Worker:
     ) -> Tuple[int, int, int, int, int, int]:
         assert sensor_frames.ndim == fullstate_frames.ndim == 5
         assert sensor_timeframes.ndim == fullstate_timeframes.ndim == 2
-        n_sensor_frames: int = sensor_timeframes.shape[0]
-        n_fullstate_frames: int = fullstate_timeframes.shape[0]
-        assert sensor_timeframes.shape[1] == fullstate_timeframes.shape[1]
+        n_sensor_frames: int = sensor_timeframes.shape[1]
+        n_fullstate_frames: int = fullstate_timeframes.shape[1]
         assert sensor_frames.shape[0] == fullstate_frames.shape[0]
         batch_size: int = sensor_frames.shape[0]
         n_channels, H, W = sensor_frames.shape[-3:]
@@ -52,16 +52,16 @@ class Trainer(Worker):
         lr: float,
         a: float,
         r: float,
-        train_dataset: CFDDataset,
-        val_dataset: CFDDataset,
+        train_dataset: CFDTrainDataset,
+        val_dataset: CFDTrainDataset,
         train_batch_size: int,
         val_batch_size: int,
     ):
         self.lr: float = lr
         self.a: float = a
         self.r: float = r
-        self.train_dataset: CFDDataset = train_dataset
-        self.val_dataset: CFDDataset = val_dataset
+        self.train_dataset: CFDTrainDataset = train_dataset
+        self.val_dataset: CFDTrainDataset = val_dataset
         self.train_batch_size: int = train_batch_size
         self.val_batch_size: int = val_batch_size
 
@@ -83,12 +83,11 @@ class Trainer(Worker):
         )
         self.loss_function: nn.Module = CustomMSE(
             resolution=train_dataset.resolution,
-            sensor_positions=train_dataset.sensor_positions,
+            sensor_positions=train_dataset.sensor_positions.cuda(),
             a=a, r=r,
             reduction='sum',
-        ).cuda()
-
-        self.optimizer: AdamW = AdamW(params=net.parameters, lr=lr)
+        )
+        self.metric = nn.MSELoss(reduction='sum')
 
         self.grad_scaler = GradScaler(device="cuda")
         if torch.cuda.device_count() > 1:
@@ -97,6 +96,8 @@ class Trainer(Worker):
             self.net: FLRONet = net.cuda()
         else:
             raise ValueError('No GPUs are found in the system')
+        
+        self.optimizer = Adam(params=self.net.parameters(), lr=lr)
 
     def train(
         self, 
@@ -112,7 +113,7 @@ class Trainer(Worker):
         timer = Timer()
         logger = Logger()
         checkpoint_saver = CheckpointSaver(
-            model=self.global_operator,
+            model=self.net,
             optimizer=self.optimizer,
             dirpath=checkpoint_path,
         )
@@ -120,9 +121,10 @@ class Trainer(Worker):
         
         for epoch in range(1, n_epochs + 1):
             timer.start_epoch(epoch)
+            # in enumerate(tqdm(self.train_dataloader, start=1), start=1):
             for batch, (
                 sensor_timeframes, sensor_frames, fullstate_timeframes, fullstate_frames, _, _
-            ) in enumerate(self.train_dataloader, start=1):
+            ) in enumerate(tqdm(self.train_dataloader, desc=f'Epoch {epoch}/{n_epochs}: '), start=1):
                 timer.start_batch(epoch, batch)
                 # Data validation
                 self._validate_inputs(sensor_timeframes, sensor_frames, fullstate_timeframes, fullstate_frames)
@@ -141,25 +143,34 @@ class Trainer(Worker):
                     )
                     # Compute loss
                     total_loss: torch.Tensor = self.loss_function(
-                        fullstate_frames=fullstate_frames, reconstructed_frames=reconstruction_frames
+                        reconstructed_frames=reconstruction_frames, fullstate_frames=fullstate_frames
                     )
                     mean_loss: torch.Tensor = total_loss / reconstruction_frames.numel()
-            
+                    # Compute metrics
+                    with torch.no_grad():
+                        total_mse: torch.Tensor = self.metric(
+                            input=reconstruction_frames, target=fullstate_frames,
+                        )
+
                 # Backpropagation
                 self.grad_scaler.scale(mean_loss).backward()
                 self.grad_scaler.step(self.optimizer)
                 self.grad_scaler.update()
 
                 # Accumulate the metrics
-                train_metrics.add(total_loss=total_loss.item(), n_elems=reconstruction_frames.numel())
+                train_metrics.add(
+                    total_loss=total_loss.item(), 
+                    total_mse=total_mse.item(),
+                    n_elems=reconstruction_frames.numel(),
+                )
                 timer.end_batch(epoch=epoch)
                 # Log
                 train_mean_loss: float = train_metrics['total_loss'] / train_metrics['n_elems']
+                train_mean_mse: float = train_metrics['total_mse'] / train_metrics['n_elems']
                 logger.log(
                     epoch=epoch, n_epochs=n_epochs, 
-                    batch=batch, n_batches=len(self.train_dataloader), 
-                    took=timer.time_batch(epoch, batch), 
-                    mean_train_loss=train_mean_loss
+                    batch=batch, n_batches=len(self.train_dataloader), took=timer.time_batch(epoch, batch), 
+                    mean_train_rmse=train_mean_mse ** 0.5, mean_train_mse=train_mean_mse, mean_train_loss=train_mean_loss
                 )
         
             # Ragularly save checkpoint
@@ -173,18 +184,19 @@ class Trainer(Worker):
             # Reset metric records for next epoch
             train_metrics.reset()
             # Evaluate
-            val_mean_loss = self.evaluate()
+            val_mean_mse: float; val_mean_rmse: float; val_mean_loss: float
+            val_mean_mse, val_mean_loss = self.evaluate()
+            val_mean_rmse = val_mean_mse ** 0.5
             timer.end_epoch(epoch)
             # Log
             logger.log(
-                epoch=epoch, n_epochs=n_epochs, 
-                took=timer.time_epoch(epoch), 
-                val_mean_loss=val_mean_loss, 
+                epoch=epoch, n_epochs=n_epochs, took=timer.time_epoch(epoch), 
+                val_mean_rmse=val_mean_rmse, val_mean_mse=val_mean_mse, val_mean_loss=val_mean_loss, 
             )
             print('=' * 20)
 
             # Check early-stopping
-            early_stopping(value=val_mean_loss)
+            early_stopping(value=val_mean_rmse)
             if early_stopping:
                 print('Early Stopped')
                 break
@@ -218,15 +230,24 @@ class Trainer(Worker):
                     )
                     # Compute total loss
                     total_loss: torch.Tensor = self.loss_function(
-                        fullstate_frames=fullstate_frames, reconstructed_frames=reconstruction_frames
+                        reconstructed_frames=reconstruction_frames, fullstate_frames=fullstate_frames,
+                    )
+                    # Compute metrics
+                    total_mse: torch.Tensor = self.metric(
+                        input=reconstruction_frames, target=fullstate_frames,
                     )
 
                 # Accumulate the val_metrics
-                val_metrics.add(total_loss=total_loss.item(), n_elems=reconstruction_frames.numel())
+                val_metrics.add(
+                    total_loss=total_loss.item(), 
+                    total_mse=total_mse.item(), 
+                    n_elems=reconstruction_frames.numel(), 
+                )
 
         # Compute the aggregate metrics
+        mean_mse: float = val_metrics['total_mse'] / val_metrics['n_elems']
         mean_loss: float = val_metrics['total_loss'] / val_metrics['n_elems']
-        return mean_loss
+        return mean_mse, mean_loss
 
 
 class Predictor(Worker):
@@ -235,9 +256,10 @@ class Predictor(Worker):
         self.net = net.cuda()
         self.loss_function: nn.Module = nn.MSELoss(reduction='sum').to(device=self.device)
 
-    def predict(self, dataset: CFDDataset) -> None:
+    def predict(self, dataset: CFDTrainDataset) -> None:
         self.net.eval()
         # Batch size should be 1 since len(dataset) == 1
+        # TODO: must use a different dataset class
         dataloader = DataLoader(
             dataset, 
             batch_size=1, 
@@ -269,13 +291,21 @@ class Predictor(Worker):
                 fullstate_timeframes = fullstate_timeframes.squeeze(dim=0)
 
                 for frame_idx in range(fullstate_timeframes.shape[0]):
+                    reconstruction_frame: torch.Tensor = reconstruction_frames[frame_idx]
+                    fullstate_frame: torch.Tensor = fullstate_frames[frame_idx]
+                    frame_total_mse: torch.Tensor = self.metric(
+                        input=reconstruction_frame.unsqueeze(0).unsqueeze(0), 
+                        target=fullstate_frame.unsqueeze(0).unsqueeze(0),
+                    )
+                    frame_mean_mse: float = frame_total_mse.item() / fullstate_frame.numel()
+                    frame_mean_rmse: float = frame_mean_mse ** 0.5
                     at_timeframe = int(fullstate_timeframes[frame_idx].item())
                     plot_frame(
                         sensor_positions=dataset.sensor_positions,
-                        fullstate_frame=fullstate_frames[frame_idx], 
-                        reconstruction_frame=reconstruction_frames[frame_idx],
+                        fullstate_frame=fullstate_frame, 
+                        reconstruction_frame=reconstruction_frame,
                         reduction=lambda x: compute_velocity_field(x, dim=0),
                         prefix=f'{case_name.upper()}, Samping {sampling_id}\n',
-                        suffix=f"at t={at_timeframe * 0.001}s (frame {at_timeframe})"
+                        suffix=f"at t={at_timeframe * 0.001}s (frame {at_timeframe}) | RMSE: {frame_mean_rmse:.6f}",
                     )
 

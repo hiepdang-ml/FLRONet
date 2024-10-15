@@ -25,12 +25,12 @@ class CustomMSE(nn.Module):
 
     def forward(
         self, 
-        fullstate_frames: torch.Tensor, 
         reconstructed_frames: torch.Tensor, 
+        fullstate_frames: torch.Tensor, 
     ) -> torch.Tensor:
 
-        assert fullstate_frames.shape == reconstructed_frames.shape # (batch_size, n_timeframes, n_channels, H, W)
-        plain_mse_loss = (fullstate_frames - reconstructed_frames) ** 2
+        assert reconstructed_frames.shape == fullstate_frames.shape # (batch_size, n_timeframes, n_channels, H, W)
+        plain_mse_loss = (reconstructed_frames - fullstate_frames) ** 2
         weighted_mse_loss = plain_mse_loss * self.weights    # broadcasted
         assert weighted_mse_loss.shape == reconstructed_frames.shape
 
@@ -59,7 +59,7 @@ class CustomMSE(nn.Module):
         squared_distances: torch.Tensor = (h_coords - sensor_h) ** 2 + (w_coords - sensor_w) ** 2
         assert squared_distances.shape == (n_sensors, self.H, self.W)
         # weight = a * exp(-s * d^2 ) + 1
-        # in which: (a + 1) is the max weight at the sensor position (d=0), s controls the spread (decay rate), min weight is always 1
+        # in which: (a + 1) is the max weight at the sensor position (d=0), s controls the spread (decay rate), min weight should be 1
         weights = self.a * torch.exp(-squared_distances * self.r) + 1
         weights = weights.mean(dim=0) # pixel-level loss does not depend on n_sensors
         assert weights.shape == (self.H, self.W)
@@ -70,18 +70,18 @@ if __name__ == '__main__':
 
     from torch.utils.data import DataLoader
 
-    from cfd.dataset import CFDDataset
+    from cfd.dataset import CFDTrainDataset
     from cfd.sensors import LHS, AroundCylinder
     from cfd.embedding import Mask, Voronoi
     
-    # sensor_generator = LHS(spatial_shape=(140, 240), n_sensors=32)
-    sensor_generator = AroundCylinder(resolution=(140, 240), n_sensors=64)
+    # sensor_generator = LHS(n_sensors=32)
+    sensor_generator = AroundCylinder(n_sensors=64)
     # embedding_generator = Mask()
     embedding_generator = Voronoi(weighted=False)
 
-    dataset = CFDDataset(
+    dataset = CFDTrainDataset(
         root='./data/val', 
-        init_sensor_timeframe_indices=[0, 5, 10, 15, 20, 25, 30, 35, 40, 45, 50],
+        init_sensor_timeframes=[0, 5, 10, 15, 20, 25, 30, 35, 40, 45, 50],
         n_fullstate_timeframes_per_chunk=10,
         n_samplings_per_chunk=1,
         resolution=(140, 240),

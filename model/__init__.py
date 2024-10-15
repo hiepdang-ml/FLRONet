@@ -1,1 +1,1 @@
-from flronet import FLRONet
+from .flronet import FLRONet

@@ -61,7 +61,6 @@ class AFNOLayer(nn.Module):
         assert embedding_dim == self.embedding_dim
 
         output: torch.Tensor = self.ln1(input)
-
         # Fourier transform (Token mixing)
         fourier_coeff: torch.Tensor = torch.fft.rfft2(input=output, dim=(2, 3), norm="ortho")
         # Linear transformation with shared weight (Channel mixing)

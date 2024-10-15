@@ -1,6 +1,8 @@
 #!/bin/bash
 
-cd ~/FLRONet
+# Environment variables
+export PYTHONPATH=.
+export PATH=$(pwd):$PATH
 
 # Environment
 conda init
@@ -22,7 +24,3 @@ rm *.zip
 mkdir -p data
 mv bc data
 mv prop data
-
-# Set variables
-export PYTHONPATH=.
-export PATH=$(pwd):$PATH
