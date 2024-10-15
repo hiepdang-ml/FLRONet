@@ -1,7 +1,7 @@
 dataset:
   init_sensor_timeframes: [0, 10, 20, 30, 40, 50]
-  n_fullstate_timeframes_per_chunk: 10
-  n_samplings_per_chunk: 3
+  n_fullstate_timeframes_per_chunk: 5
+  n_samplings_per_chunk: 5
   resolution: [70, 120]
   n_sensors: 32
   sensor_generator: 'AroundCylinder'  # AroundCylinder | LHS
@@ -11,16 +11,16 @@ dataset:
 
 architecture:
   n_channels: 2
-  n_afno_layers: 4
+  n_afno_layers: 12
   embedding_dim: 96
   block_size: 32
   dropout_rate: 0.1
-  n_stacked_networks: 4
+  n_stacked_networks: 1
   from_checkpoint: null   # set to null to train from scratch
 
 training:
-  train_batch_size: 2
-  val_batch_size: 1
+  train_batch_size: 8
+  val_batch_size: 4
   learning_rate: 1e-3
   a: 10.
   r: 0.01
