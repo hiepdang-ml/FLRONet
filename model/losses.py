@@ -70,7 +70,7 @@ if __name__ == '__main__':
 
     from torch.utils.data import DataLoader
 
-    from cfd.dataset import CFDTrainDataset
+    from cfd.dataset import CFDDataset
     from cfd.sensors import LHS, AroundCylinder
     from cfd.embedding import Mask, Voronoi
     
@@ -79,7 +79,7 @@ if __name__ == '__main__':
     # embedding_generator = Mask()
     embedding_generator = Voronoi(weighted=False)
 
-    dataset = CFDTrainDataset(
+    dataset = CFDDataset(
         root='./data/val', 
         init_sensor_timeframes=[0, 5, 10, 15, 20, 25, 30, 35, 40, 45, 50],
         n_fullstate_timeframes_per_chunk=10,

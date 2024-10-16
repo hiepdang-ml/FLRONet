@@ -34,16 +34,16 @@ class StackedBranchNet(nn.Module):
             nn.Linear(in_features=embedding_dim * 4, out_features=n_channels),
         )
 
-    def forward(self, sensor_tensor: torch.Tensor) -> torch.Tensor:
-        batch_size, n_timeframes, n_channels, H, W = sensor_tensor.shape
+    def forward(self, sensor_value: torch.Tensor) -> torch.Tensor:
+        batch_size, n_timeframes, n_channels, H, W = sensor_value.shape
         assert n_channels == self.n_channels
 
-        output: torch.Tensor = sensor_tensor.permute(0, 1, 3, 4, 2)
+        output: torch.Tensor = sensor_value.permute(0, 1, 3, 4, 2)
         output = self.embedding_layer(output)   # (batch_size, n_timeframes, H, W, self.embedding_dim)
         output = self.afno_block(output)        # (batch_size, n_timeframes, H, W, self.embedding_dim)
         output = self.mlp(output)               # (batch_size, n_timeframes, H, W, self.n_channels)
         output: torch.Tensor = output.permute(0, 1, 4, 2, 3)
-        assert output.shape == sensor_tensor.shape
+        assert output.shape == sensor_value.shape
         return output
 
 
@@ -137,30 +137,30 @@ class FLRONet(nn.Module):
 
     def forward(
         self, 
-        sensor_timeframe_tensor: torch.Tensor, 
-        sensor_tensor: torch.Tensor, 
-        fullstate_timeframe_tensor: torch.Tensor, 
+        sensor_timeframes: torch.Tensor, 
+        sensor_values: torch.Tensor, 
+        fullstate_timeframes: torch.Tensor, 
     ) -> torch.Tensor:
         
-        batch_size: int = sensor_timeframe_tensor.shape[0]
-        assert sensor_timeframe_tensor.shape == (batch_size, self.n_sensor_timeframes)
-        assert sensor_tensor.shape == (batch_size, self.n_sensor_timeframes, self.n_channels, self.H, self.W)
-        assert fullstate_timeframe_tensor.shape == (batch_size, self.n_fullstate_timeframes)
+        batch_size: int = sensor_timeframes.shape[0]
+        assert sensor_timeframes.shape == (batch_size, self.n_sensor_timeframes)
+        assert sensor_values.shape == (batch_size, self.n_sensor_timeframes, self.n_channels, self.H, self.W)
+        assert fullstate_timeframes.shape == (batch_size, self.n_fullstate_timeframes)
         
         output: torch.Tensor = torch.zeros(
             batch_size, self.n_fullstate_timeframes, self.n_channels, self.H, self.W,
-            device=sensor_tensor.device
+            device=sensor_values.device
         )
 
         for i in range(self.n_stacked_networks):
             # branch
             branch_net: StackedBranchNet = self.branch_nets[i]
-            branch_output: torch.Tensor = branch_net(sensor_tensor)
+            branch_output: torch.Tensor = branch_net(sensor_values)
             # trunk
             trunk_net: StackedTrunkNet = self.trunk_nets[i]
             trunk_output: torch.Tensor = trunk_net(
-                fullstate_timeframes=fullstate_timeframe_tensor, 
-                sensor_timeframes=sensor_timeframe_tensor,
+                fullstate_timeframes=fullstate_timeframes, 
+                sensor_timeframes=sensor_timeframes,
             )
             assert branch_output.shape == (batch_size, self.n_sensor_timeframes, self.n_channels, self.H, self.W)
             assert trunk_output.shape == (batch_size, self.n_sensor_timeframes, self.n_fullstate_timeframes, self.H, self.W)
@@ -175,14 +175,14 @@ if __name__ == '__main__':
     from torch.utils.data import DataLoader
     from cfd.embedding import Mask, Voronoi
     from cfd.sensors import AroundCylinder, LHS
-    from cfd.dataset import CFDTrainDataset
+    from cfd.dataset import CFDDataset
 
     # sensor_generator = LHS(n_sensors=32)
     sensor_generator = AroundCylinder(n_sensors=32)
     # embedding_generator = Mask()
     embedding_generator = Voronoi()
 
-    dataset = CFDTrainDataset(
+    dataset = CFDDataset(
         root='./data/val', 
         init_sensor_timeframes=[0, 5, 10, 15, 20, 25, 30, 35, 40, 45, 50],
         n_fullstate_timeframes_per_chunk=10,

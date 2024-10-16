@@ -7,7 +7,7 @@ from torch.optim import Optimizer, Adam
 from cfd.sensors import LHS, AroundCylinder
 from cfd.embedding import Mask, Voronoi
 from model import FLRONet
-from cfd.dataset import CFDTrainDataset
+from cfd.dataset import CFDDataset
 from common.training import CheckpointLoader
 from worker import Trainer
 
@@ -66,7 +66,7 @@ def main(config: Dict[str, Any]) -> None:
         raise ValueError(f'Invalid embedding_generator: {embedding_generator}')
 
     # Instatiate the training datasets
-    train_dataset = CFDTrainDataset(
+    train_dataset = CFDDataset(
         root='./data/train', 
         init_sensor_timeframes=init_sensor_timeframes,
         n_fullstate_timeframes_per_chunk=n_fullstate_timeframes_per_chunk,
@@ -77,7 +77,7 @@ def main(config: Dict[str, Any]) -> None:
         seed=seed,
         already_preloaded=already_preloaded,
     )
-    val_dataset = CFDTrainDataset(
+    val_dataset = CFDDataset(
         root='./data/val', 
         init_sensor_timeframes=init_sensor_timeframes,
         n_fullstate_timeframes_per_chunk=n_fullstate_timeframes_per_chunk,

@@ -7,14 +7,14 @@ from torch.optim import Optimizer, Adam
 from cfd.sensors import LHS, AroundCylinder
 from cfd.embedding import Mask, Voronoi
 from model.flronet import FLRONet
-from cfd.dataset import CFDTrainDataset
+from cfd.dataset import CFDDataset
 from common.training import CheckpointLoader
 from worker import Predictor
 
 
 def main(config: Dict[str, Any]) -> None:
     """
-    Main function to make prediction using FLRONet.
+    Main function to evaluate a trained FLRONet on test dataset.
 
     Parameters:
         config (Dict[str, Any]): Configuration dictionary.
@@ -31,8 +31,7 @@ def main(config: Dict[str, Any]) -> None:
     seed: int                                   = int(config['dataset']['seed'])
     already_preloaded: bool                     = bool(config['dataset']['already_preloaded'])
 
-    data: str                                   = str(config['predict']['data'])
-    from_checkpoint: str                        = str(config['predict']['from_checkpoint'])
+    from_checkpoint: str                        = str(config['test']['from_checkpoint'])
 
     # Instatiate the sensor generator
     if sensor_generator == 'AroundCylinder':
@@ -51,8 +50,8 @@ def main(config: Dict[str, Any]) -> None:
         raise ValueError(f'Invalid embedding_generator: {embedding_generator}')
 
     # Instatiate the training datasets
-    dataset = CFDTrainDataset(
-        root=data, 
+    dataset = CFDDataset(
+        root='./data/test', 
         init_sensor_timeframes=init_sensor_timeframes,
         n_fullstate_timeframes_per_chunk=n_fullstate_timeframes_per_chunk,
         n_samplings_per_chunk=n_samplings_per_chunk,
@@ -67,14 +66,14 @@ def main(config: Dict[str, Any]) -> None:
     checkpoint_loader = CheckpointLoader(checkpoint_path=from_checkpoint)
     net: FLRONet = checkpoint_loader.load(scope=globals())[0]
         
-    # Load global trainer    
+    # Make prediction
     predictor = Predictor(net=net)
-    predictor.predict(dataset)
+    predictor.predict_from_dataset(dataset)
 
 
 if __name__ == "__main__":
     # Initialize the argument parser
-    parser = argparse.ArgumentParser(description='Make prediction using FLRONet')
+    parser = argparse.ArgumentParser(description='Evaluate a trained FLRONet on test dataset')
     parser.add_argument('--config', type=str, required=True, help='Configuration file name.')
     args: argparse.Namespace = parser.parse_args()
     # Load the configuration

@@ -3,4 +3,4 @@
 CONFIG="config.yaml"
 
 echo "Start Reconstructing..."
-python cli/reconstruct.py --config="$CONFIG"
+python cli/inference.py --config="$CONFIG"

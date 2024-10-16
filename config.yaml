@@ -1,7 +1,7 @@
 dataset:
-  init_sensor_timeframes: [0, 10, 20, 30, 40, 50]
+  init_sensor_timeframes: [0, 5, 10, 15, 20, 25, 30, 35, 40, 45, 50]
   n_fullstate_timeframes_per_chunk: 5
-  n_samplings_per_chunk: 5
+  n_samplings_per_chunk: 1
   resolution: [70, 120]
   n_sensors: 32
   sensor_generator: 'AroundCylinder'  # AroundCylinder | LHS
@@ -11,26 +11,33 @@ dataset:
 
 architecture:
   n_channels: 2
-  n_afno_layers: 12
-  embedding_dim: 96
+  n_afno_layers: 8
+  embedding_dim: 128
   block_size: 32
   dropout_rate: 0.1
-  n_stacked_networks: 1
+  n_stacked_networks: 2
   from_checkpoint: null   # set to null to train from scratch
 
 training:
-  train_batch_size: 8
-  val_batch_size: 4
+  train_batch_size: 4
+  val_batch_size: 2
   learning_rate: 1e-3
   a: 10.
   r: 0.01
-  n_epochs: 1000
-  patience: 50
+  n_epochs: 100
+  patience: 5
   tolerance: 0.
   save_frequency: 1
 
-predict:
-  data: 'data/test/case0032'
+test:
   from_checkpoint: '.checkpoints/epoch10.pt'
+
+inference:
+  case_dir: 'data/test/case0006'
+  sensor_timeframes: [700, 705, 710, 715, 720, 725, 730, 735, 740, 745, 750]
+  reconstruction_timeframes: [703, 719, 726, 734, 747]
+  sensor_position_path: 'tensors/train/sensor_positions/pos.pt'
+  from_checkpoint: '.checkpoints/epoch10.pt'
+
 
 

@@ -14,7 +14,39 @@ from cfd.sensors import LHS, AroundCylinder
 from cfd.embedding import Voronoi, Mask
 
 
-class CFDTrainDataset(Dataset):
+class DatasetMixin:
+
+    def load2tensor(self, case_dir: str) -> torch.Tensor:
+        return torch.stack(
+            tensors=[
+                torch.from_numpy(np.load(os.path.join(case_dir, 'u.npy'))),
+                torch.from_numpy(np.load(os.path.join(case_dir, 'v.npy')))
+            ],
+            dim=1
+        ).float()
+
+    def prepare_sensor_timeframes(self) -> torch.LongTensor:
+        # compute number of steps to reach n_timeframes (also the number of chunks)
+        n_chunks = self.total_timeframes_per_case - max(self.init_sensor_timeframes)
+        # prepare sensor timeframes (fixed)
+        sensor_timeframes: torch.Tensor = torch.tensor(self.init_sensor_timeframes) + torch.arange(n_chunks).unsqueeze(1)
+        assert sensor_timeframes.shape == (n_chunks, len(self.init_sensor_timeframes))
+        return sensor_timeframes
+
+    def prepare_fullstate_timeframes(self, seed: int) -> torch.Tensor:
+        # compute number of steps to reach n_timeframes (also the number of chunks)
+        n_chunks = self.total_timeframes_per_case - max(self.init_sensor_timeframes)
+        # prepare fullstate timeframes (stochastic)
+        torch.random.manual_seed(seed=seed)
+        random_init_timeframes: torch.Tensor = torch.randperm(
+            n=max(self.init_sensor_timeframes)
+        )[:self.n_fullstate_timeframes_per_chunk].sort()[0]
+        fullstate_timeframes: torch.Tensor = random_init_timeframes + torch.arange(n_chunks).unsqueeze(1)
+        assert fullstate_timeframes.shape == (n_chunks, self.n_fullstate_timeframes_per_chunk)
+        return fullstate_timeframes
+
+
+class CFDDataset(Dataset, DatasetMixin):
 
     def __init__(
         self, 
@@ -58,7 +90,7 @@ class CFDTrainDataset(Dataset):
         self.sensor_positions_dest: str = os.path.join(self.dest, 'sensor_positions')
         self.metadata_dest: str = os.path.join(self.dest, 'metadata')
         
-        self.sensor_timeframes = self.__prepare_sensor_timeframes()
+        self.sensor_timeframes = self.prepare_sensor_timeframes()
         if self.already_preloaded:
             self.sensor_positions: torch.Tensor = torch.load(
                 f=os.path.join(self.sensor_positions_dest, 'pos.pt'), weights_only=True
@@ -74,7 +106,7 @@ class CFDTrainDataset(Dataset):
             self.__write2disk()
 
     def __getitem__(self, idx: int) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
-        prefix: str = f'{self.case_names[idx]}_{self.sampling_ids[idx]}_'
+        prefix: str = f'_{self.case_names[idx]}_{self.sampling_ids[idx]}_'
         suffix: str = str(idx).zfill(6)
         sensor_timeframe_tensor: torch.Tensor = torch.load(
             os.path.join(self.sensor_timeframes_dest, f'st{prefix}{suffix}.pt'), 
@@ -100,7 +132,6 @@ class CFDTrainDataset(Dataset):
         return len([f for f in os.listdir(self.fullstate_values_dest) if f.endswith('.pt')])
 
     def __write2disk(self) -> None:
-
         # prepare dest directories
         if os.path.exists(self.dest): 
             confirmed: bool = input(
@@ -155,7 +186,7 @@ class CFDTrainDataset(Dataset):
 
             for sampling_id in range(self.n_samplings_per_chunk):
                 # fullstate data
-                fullstate_timeframes: torch.Tensor = self.__prepare_fullstate_timeframes(seed=self.seed + case_id + sampling_id)
+                fullstate_timeframes: torch.Tensor = self.prepare_fullstate_timeframes(seed=self.seed + case_id + sampling_id)
                 fullstate_data: torch.Tensor = data[fullstate_timeframes]
                 # resize fullstate frames
                 fullstate_data = F.interpolate(input=fullstate_data.flatten(0, 1), size=self.resolution, mode='bicubic')
@@ -169,7 +200,7 @@ class CFDTrainDataset(Dataset):
                     case_name: str = os.path.basename(case_dir)
                     self.case_names.append(case_name)
                     self.sampling_ids.append(sampling_id)
-                    prefix: str = f'{case_name}_{sampling_id}_'
+                    prefix: str = f'_{case_name}_{sampling_id}_'
                     # indexes
                     true_idx: int = idx + sampling_id * n_chunks + case_id * n_chunks * self.n_samplings_per_chunk
                     suffix = str(true_idx).zfill(6)
@@ -196,42 +227,6 @@ class CFDTrainDataset(Dataset):
         with open(os.path.join(self.metadata_dest, 'metadata.json'), 'w') as f:
             json.dump(obj=records, fp=f, indent=2)
 
-    def __prepare_sensor_timeframes(self) -> torch.LongTensor:
-        # compute number of steps to reach n_timeframes (also the number of chunks)
-        n_chunks = self.total_timeframes_per_case - max(self.init_sensor_timeframes)
-        # prepare sensor timeframes (fixed)
-        sensor_timeframes: torch.Tensor = torch.tensor(self.init_sensor_timeframes) + torch.arange(n_chunks).unsqueeze(1)
-        assert sensor_timeframes.shape == (n_chunks, len(self.init_sensor_timeframes))
-        return sensor_timeframes
-
-    def __prepare_fullstate_timeframes(self, seed: int) -> torch.Tensor:
-        # compute number of steps to reach n_timeframes (also the number of chunks)
-        n_chunks = self.total_timeframes_per_case - max(self.init_sensor_timeframes)
-        # prepare fullstate timeframes (stochastic)
-        torch.random.manual_seed(seed=seed)
-        random_init_timeframes: torch.Tensor = torch.randperm(
-            n=max(self.init_sensor_timeframes)
-        )[:self.n_fullstate_timeframes_per_chunk].sort()[0]
-        fullstate_timeframes: torch.Tensor = random_init_timeframes + torch.arange(n_chunks).unsqueeze(1)
-        assert fullstate_timeframes.shape == (n_chunks, self.n_fullstate_timeframes_per_chunk)
-        return fullstate_timeframes
-
-
-class CFDInferenceDataset(Dataset):
-
-    def __init__(
-        self, 
-        case_root: str, 
-        sensor_timeframes: List[int],
-        reconstruction_timeframes: List[int],
-        resolution: Tuple[int, int],
-    ) -> None:
-        self.case_root: str = case_root
-        self.sensor_timeframes: List[int] = sensor_timeframes
-        self.reconstruction_timeframes: List[int] = reconstruction_timeframes
-        self.resolution: Tuple[int, int] = resolution
-
-
 
 
 if __name__ == '__main__':
@@ -240,7 +235,7 @@ if __name__ == '__main__':
     # embedding_generator = Mask()
     embedding_generator = Voronoi(weighted=False)
 
-    self = CFDTrainDataset(
+    self = CFDDataset(
         root='./data/val', 
         init_sensor_timeframes=[0, 5, 10, 15, 20, 25, 30, 35, 40, 45, 50],
         n_fullstate_timeframes_per_chunk=10,

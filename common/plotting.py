@@ -104,7 +104,7 @@ def plot_frame(
 if __name__ == '__main__':
 
     from common.functional import compute_velocity_field
-    from cfd.dataset import CFDTrainDataset
+    from cfd.dataset import CFDDataset
     from cfd.sensors import LHS, AroundCylinder
     from cfd.embedding import Mask, Voronoi
     
@@ -113,7 +113,7 @@ if __name__ == '__main__':
     # embedding_generator = Mask()
     embedding_generator = Voronoi(weighted=False)
 
-    dataset = CFDTrainDataset(
+    dataset = CFDDataset(
         root='./data/val', 
         init_sensor_timeframes=[0, 10, 20, 30, 40, 50],
         n_fullstate_timeframes_per_chunk=10,

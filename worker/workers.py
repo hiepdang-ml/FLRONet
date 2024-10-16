@@ -1,16 +1,19 @@
+import os
 from abc import ABC, abstractmethod
 from typing import List, Tuple, Optional
-from functools import cached_property
 from tqdm import tqdm
 
+import numpy as np
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 from torch.utils.data import DataLoader
 from torch.optim import Adam
 from torch.amp import autocast, GradScaler
 
 from common.training import Accumulator, EarlyStopping, Timer, Logger, CheckpointSaver
-from cfd.dataset import CFDTrainDataset
+from cfd.dataset import CFDDataset, DatasetMixin
+from cfd.embedding import Voronoi, Mask
 from model import FLRONet
 from model.losses import CustomMSE
 from common.plotting import plot_frame
@@ -52,16 +55,16 @@ class Trainer(Worker):
         lr: float,
         a: float,
         r: float,
-        train_dataset: CFDTrainDataset,
-        val_dataset: CFDTrainDataset,
+        train_dataset: CFDDataset,
+        val_dataset: CFDDataset,
         train_batch_size: int,
         val_batch_size: int,
     ):
         self.lr: float = lr
         self.a: float = a
         self.r: float = r
-        self.train_dataset: CFDTrainDataset = train_dataset
-        self.val_dataset: CFDTrainDataset = val_dataset
+        self.train_dataset: CFDDataset = train_dataset
+        self.val_dataset: CFDDataset = val_dataset
         self.train_batch_size: int = train_batch_size
         self.val_batch_size: int = val_batch_size
 
@@ -137,9 +140,9 @@ class Trainer(Worker):
                 with autocast(device_type="cuda", dtype=torch.float16):
                     # Forward propagation
                     reconstruction_frames: torch.Tensor = self.net(
-                        sensor_timeframe_tensor=sensor_timeframes,
-                        sensor_tensor=sensor_frames,
-                        fullstate_timeframe_tensor=fullstate_timeframes,
+                        sensor_timeframes=sensor_timeframes,
+                        sensor_values=sensor_frames,
+                        fullstate_timeframes=fullstate_timeframes,
                     )
                     # Compute loss
                     total_loss: torch.Tensor = self.loss_function(
@@ -224,9 +227,9 @@ class Trainer(Worker):
                 with autocast(device_type="cuda", dtype=torch.float16):
                     # Forward propagation
                     reconstruction_frames: torch.Tensor = self.net(
-                        sensor_timeframe_tensor=sensor_timeframes,
-                        sensor_tensor=sensor_frames,
-                        fullstate_timeframe_tensor=fullstate_timeframes,
+                        sensor_timeframes=sensor_timeframes,
+                        sensor_values=sensor_frames,
+                        fullstate_timeframes=fullstate_timeframes,
                     )
                     # Compute total loss
                     total_loss: torch.Tensor = self.loss_function(
@@ -250,16 +253,86 @@ class Trainer(Worker):
         return mean_mse, mean_loss
 
 
-class Predictor(Worker):
+class Predictor(Worker, DatasetMixin):
 
-    def __init__(self, net: FLRONet):
+    def __init__(
+        self, 
+        net: FLRONet, 
+        sensor_position_path: str | None = None, 
+        embedding_generator: Voronoi | Mask | None = None
+    ):
         self.net = net.cuda()
-        self.loss_function: nn.Module = nn.MSELoss(reduction='sum').to(device=self.device)
+        self.sensor_position_path: str | None = sensor_position_path
+        self.embedding_generator: Voronoi | Mask | None = embedding_generator
+        if sensor_position_path is not None:
+            self.sensor_positions: torch.Tensor = torch.load(sensor_position_path).cuda()
+    
+        self.H, self.W = self.net.resolution
+        self.loss_function: nn.Module = nn.MSELoss(reduction='sum')
+        self.metric = nn.MSELoss(reduction='sum')
 
-    def predict(self, dataset: CFDTrainDataset) -> None:
+    def predict_from_scratch(
+        self, 
+        case_dir: str, 
+        sensor_timeframes: List[int],
+        reconstruction_timeframes: List[int],
+    ):
+        assert isinstance(self.sensor_position_path, str)
+        assert isinstance(self.embedding_generator, (Voronoi, Mask))
+        assert len(sensor_timeframes) == self.net.n_sensor_timeframes
+        assert len(reconstruction_timeframes) == self.net.n_fullstate_timeframes
+        assert min(sensor_timeframes) < min(reconstruction_timeframes)
+        assert max(reconstruction_timeframes) < max(sensor_timeframes)
+
         self.net.eval()
-        # Batch size should be 1 since len(dataset) == 1
-        # TODO: must use a different dataset class
+        # load raw data
+        data: torch.Tensor = self.load2tensor(case_dir).cuda()
+        # prepare reconstruction timeframes
+        reconstruction_timeframes: torch.Tensor = torch.tensor(reconstruction_timeframes, dtype=torch.long).cuda()
+        reconstruction_timeframes = reconstruction_timeframes.unsqueeze(dim=0)
+        # prepare sensor timeframes
+        sensor_timeframes: torch.Tensor = torch.tensor(sensor_timeframes, dtype=torch.long).cuda()
+        sensor_timeframes = sensor_timeframes.unsqueeze(dim=0)
+        # prepare sensor values
+        sensor_frames: torch.Tensor = data[sensor_timeframes]
+        # resize sensor frames (original resolution is 64 x 64, which is not proportional to 0.14m x 0.24m)
+        sensor_frames = F.interpolate(
+            input=sensor_frames.flatten(0, 1), size=(self.H, self.W), mode='bicubic'
+        )
+        sensor_frames = sensor_frames.reshape(1, self.net.n_sensor_timeframes, 2, self.H, self.W)
+        # compute sensor data for entire space
+        sensor_frames = self.embedding_generator(data=sensor_frames, sensor_positions=self.sensor_positions)
+        assert sensor_frames.shape == (1, self.net.n_sensor_timeframes, 2, self.H, self.W)
+        with torch.no_grad():
+            # reconstruct
+            with autocast(device_type="cuda", dtype=torch.float16):
+                # Forward propagation
+                reconstruction_frames: torch.Tensor = self.net(
+                    sensor_timeframes=sensor_timeframes,
+                    sensor_values=sensor_frames,
+                    fullstate_timeframes=reconstruction_timeframes,
+                )
+
+        assert reconstruction_frames.shape == (
+            1, len(reconstruction_timeframes), self.n_channels, self.H, self.W
+        )
+        # visualization
+        reconstruction_frames = reconstruction_frames.squeeze(dim=0)
+        reconstruction_timeframes = reconstruction_timeframes.squeeze(dim=0)
+        case_name: str = os.path.basename(case_dir)
+        for frame_idx in range(reconstruction_frames.shape[0]):
+            reconstruction_frame: torch.Tensor = reconstruction_frames[frame_idx]
+            at_timeframe = int(reconstruction_timeframes[frame_idx].item())
+            plot_frame(
+                sensor_positions=self.sensor_positions,
+                reconstruction_frame=reconstruction_frame,
+                reduction=lambda x: compute_velocity_field(x, dim=0),
+                prefix=f'{case_name.upper()}\n',
+                suffix=f"at t={at_timeframe * 0.001}s (frame {at_timeframe})",
+            )
+
+    def predict_from_dataset(self, dataset: CFDDataset) -> None:
+        self.net.eval()
         dataloader = DataLoader(
             dataset, 
             batch_size=1, 
@@ -280,9 +353,9 @@ class Predictor(Worker):
                 with autocast(device_type="cuda", dtype=torch.float16):
                     # Forward propagation
                     reconstruction_frames: torch.Tensor = self.net(
-                        sensor_timeframe_tensor=sensor_timeframes,
-                        sensor_tensor=sensor_frames,
-                        fullstate_timeframe_tensor=fullstate_timeframes,
+                        sensor_timeframes=sensor_timeframes,
+                        sensor_values=sensor_frames,
+                        fullstate_timeframes=fullstate_timeframes,
                     )
 
                 # Visualization
