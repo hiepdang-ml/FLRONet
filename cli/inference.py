@@ -20,7 +20,6 @@ def main(config: Dict[str, Any]) -> None:
 
     # Parse CLI arguments:
     embedding_generator: str                    = str(config['dataset']['embedding_generator'])
-
     case_dir: str                               = str(config['inference']['case_dir'])
     sensor_timeframes: List[int]                = list(config['inference']['sensor_timeframes'])
     reconstruction_timeframes: List[int]        = list(config['inference']['reconstruction_timeframes'])

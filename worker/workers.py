@@ -187,19 +187,19 @@ class Trainer(Worker):
             # Reset metric records for next epoch
             train_metrics.reset()
             # Evaluate
-            val_mean_mse: float; val_mean_rmse: float; val_mean_loss: float
-            val_mean_mse, val_mean_loss = self.evaluate()
-            val_mean_rmse = val_mean_mse ** 0.5
+            mean_val_mse: float; mean_val_rmse: float; mean_val_loss: float
+            mean_val_mse, mean_val_loss = self.evaluate()
+            mean_val_rmse = mean_val_mse ** 0.5
             timer.end_epoch(epoch)
             # Log
             logger.log(
                 epoch=epoch, n_epochs=n_epochs, took=timer.time_epoch(epoch), 
-                val_mean_rmse=val_mean_rmse, val_mean_mse=val_mean_mse, val_mean_loss=val_mean_loss, 
+                mean_val_rmse=mean_val_rmse, mean_val_mse=mean_val_mse, mean_val_loss=mean_val_loss, 
             )
             print('=' * 20)
 
             # Check early-stopping
-            early_stopping(value=val_mean_rmse)
+            early_stopping(value=mean_val_rmse)
             if early_stopping:
                 print('Early Stopped')
                 break
@@ -265,7 +265,7 @@ class Predictor(Worker, DatasetMixin):
         self.sensor_position_path: str | None = sensor_position_path
         self.embedding_generator: Voronoi | Mask | None = embedding_generator
         if sensor_position_path is not None:
-            self.sensor_positions: torch.Tensor = torch.load(sensor_position_path).cuda()
+            self.sensor_positions: torch.Tensor = torch.load(sensor_position_path, weights_only=True).cuda()
     
         self.H, self.W = self.net.resolution
         self.loss_function: nn.Module = nn.MSELoss(reduction='sum')
@@ -281,8 +281,8 @@ class Predictor(Worker, DatasetMixin):
         assert isinstance(self.embedding_generator, (Voronoi, Mask))
         assert len(sensor_timeframes) == self.net.n_sensor_timeframes
         assert len(reconstruction_timeframes) == self.net.n_fullstate_timeframes
-        assert min(sensor_timeframes) < min(reconstruction_timeframes)
-        assert max(reconstruction_timeframes) < max(sensor_timeframes)
+        assert min(sensor_timeframes) <= min(reconstruction_timeframes)
+        assert max(reconstruction_timeframes) <= max(sensor_timeframes)
 
         self.net.eval()
         # load raw data
@@ -314,7 +314,7 @@ class Predictor(Worker, DatasetMixin):
                 )
 
         assert reconstruction_frames.shape == (
-            1, len(reconstruction_timeframes), self.n_channels, self.H, self.W
+            1, self.net.n_fullstate_timeframes, self.net.n_channels, self.H, self.W
         )
         # visualization
         reconstruction_frames = reconstruction_frames.squeeze(dim=0)
@@ -327,8 +327,8 @@ class Predictor(Worker, DatasetMixin):
                 sensor_positions=self.sensor_positions,
                 reconstruction_frame=reconstruction_frame,
                 reduction=lambda x: compute_velocity_field(x, dim=0),
-                prefix=f'{case_name.upper()}\n',
-                suffix=f"at t={at_timeframe * 0.001}s (frame {at_timeframe})",
+                title=f'{case_name.upper()} t={at_timeframe * 0.001:.3f}s',
+                filename=f'{case_name.lower()}_f{at_timeframe}'
             )
 
     def predict_from_dataset(self, dataset: CFDDataset) -> None:
@@ -342,7 +342,7 @@ class Predictor(Worker, DatasetMixin):
             shuffle=False
         )
         with torch.no_grad():
-            for sensor_timeframes, sensor_frames, fullstate_timeframes, fullstate_frames, case_name, sampling_id in dataloader:
+            for sensor_timeframes, sensor_frames, fullstate_timeframes, fullstate_frames, case_names, sampling_ids in dataloader:
                 # Data validation
                 self._validate_inputs(sensor_timeframes, sensor_frames, fullstate_timeframes, fullstate_frames)
                 # Move to GPU
@@ -373,12 +373,18 @@ class Predictor(Worker, DatasetMixin):
                     frame_mean_mse: float = frame_total_mse.item() / fullstate_frame.numel()
                     frame_mean_rmse: float = frame_mean_mse ** 0.5
                     at_timeframe = int(fullstate_timeframes[frame_idx].item())
+                    case_name: str = case_names[frame_idx]
+                    sampling_id: int = sampling_ids[frame_idx]
                     plot_frame(
                         sensor_positions=dataset.sensor_positions,
                         fullstate_frame=fullstate_frame, 
                         reconstruction_frame=reconstruction_frame,
                         reduction=lambda x: compute_velocity_field(x, dim=0),
-                        prefix=f'{case_name.upper()}, Samping {sampling_id}\n',
-                        suffix=f"at t={at_timeframe * 0.001}s (frame {at_timeframe}) | RMSE: {frame_mean_rmse:.6f}",
+                        title=(
+                            f'{case_name.lower()}s{sampling_id}: '
+                            f't={at_timeframe * 0.001:.3f}s, '
+                            f'RMSE: {frame_mean_rmse:.3f}'
+                        ),
+                        filename=f'{case_name.lower()}s{sampling_id}_f{at_timeframe}'
                     )
 

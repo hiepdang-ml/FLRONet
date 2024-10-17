@@ -29,16 +29,14 @@ def main(config: Dict[str, Any]) -> None:
     sensor_generator: str                       = str(config['dataset']['sensor_generator'])
     embedding_generator: str                    = str(config['dataset']['embedding_generator'])
     seed: int                                   = int(config['dataset']['seed'])
-    already_preloaded: bool                     = bool(config['dataset']['already_preloaded'])
-
+    train_already_preloaded: bool               = bool(config['dataset_preloaded']['train'])
+    val_already_preloaded: bool                 = bool(config['dataset_preloaded']['val'])
     n_channels: int                             = int(config['architecture']['n_channels'])
-    n_afno_layers: int                          = int(config['architecture']['n_afno_layers'])
     embedding_dim: int                          = int(config['architecture']['embedding_dim'])
-    block_size: int                             = int(config['architecture']['block_size'])
-    dropout_rate: float                         = float(config['architecture']['dropout_rate'])
+    n_fno_layers: int                           = int(config['architecture']['n_fno_layers'])
+    n_fno_modes: int                            = int(config['architecture']['n_fno_modes'])
     n_stacked_networks: int                     = int(config['architecture']['n_stacked_networks'])
     from_checkpoint: Optional[str]              = config['architecture']['from_checkpoint']
-    
     train_batch_size: int                       = int(config['training']['train_batch_size'])
     val_batch_size: int                         = int(config['training']['val_batch_size'])
     learning_rate: float                        = float(config['training']['learning_rate'])
@@ -75,7 +73,7 @@ def main(config: Dict[str, Any]) -> None:
         sensor_generator=sensor_generator, 
         embedding_generator=embedding_generator,
         seed=seed,
-        already_preloaded=already_preloaded,
+        already_preloaded=train_already_preloaded,
     )
     val_dataset = CFDDataset(
         root='./data/val', 
@@ -86,7 +84,7 @@ def main(config: Dict[str, Any]) -> None:
         sensor_generator=sensor_generator, 
         embedding_generator=embedding_generator,
         seed=seed,
-        already_preloaded=already_preloaded,
+        already_preloaded=val_already_preloaded,
     )
 
     # Load the model
@@ -95,13 +93,9 @@ def main(config: Dict[str, Any]) -> None:
         net: FLRONet = checkpoint_loader.load(scope=globals())[0].cuda()    # ignore optimizer
     else:
         net = FLRONet(
-            n_channels=n_channels, n_afno_layers=n_afno_layers, 
-            embedding_dim=embedding_dim, block_size=block_size, 
-            dropout_rate=dropout_rate, 
-            n_fullstate_timeframes=n_fullstate_timeframes_per_chunk, 
-            n_sensor_timeframes=len(init_sensor_timeframes), 
+            n_channels=n_channels, n_fno_layers=n_fno_layers, 
+            n_fno_modes=n_fno_modes, embedding_dim=embedding_dim,
             total_timeframes=train_dataset.total_timeframes_per_case,
-            resolution=resolution,
             n_stacked_networks=n_stacked_networks,
         ).cuda()
         

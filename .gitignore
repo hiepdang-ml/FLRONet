@@ -1,2 +1,7 @@
 __pycache__
 *.pyc
+.logs/
+.checkpoints/
+data/
+tensors/
+plots/

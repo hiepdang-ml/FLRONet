@@ -15,29 +15,29 @@ def plot_frame(
     fullstate_frame: torch.Tensor | None = None,
     reconstruction_frame: torch.Tensor | None = None,
     reduction: Callable[[torch.Tensor], torch.Tensor] | None = None,
-    prefix: str = '',
-    suffix: str = '',
+    title: str = '',
+    filename: str = '',
 ) -> None:
     
     if sensor_positions is not None:
         assert sensor_positions.ndim == 2    # (n_sensors, 2)
         n_sensors: int = sensor_positions.shape[0]
+        sensor_positions = sensor_positions.cpu()
 
     # Collect frames that are not None
     frames_to_plot = []
-    titles = []
-
+    chart_titles = []
     if sensor_frame is not None:
         frames_to_plot.append(sensor_frame)
-        titles.append(f"{prefix} Sensor Frame {suffix}")
+        chart_titles.append(f"Sensor Value")
         
     if fullstate_frame is not None:
         frames_to_plot.append(fullstate_frame)
-        titles.append(f"{prefix} Full State Frame {suffix}")
+        chart_titles.append(f"Full State")
         
     if reconstruction_frame is not None:
         frames_to_plot.append(reconstruction_frame)
-        titles.append(f"{prefix} Reconstruction Frame {suffix}")
+        chart_titles.append(f"Reconstruction")
 
     frame_shapes = [frame.shape for frame in frames_to_plot]
     assert all(shape == frame_shapes[0] for shape in frame_shapes), "All provided frames must have the same shape."
@@ -67,7 +67,7 @@ def plot_frame(
         max_value: float = fullstate_frame.max().item()
     else:
         max_value: float = max([frame.max().item() for frame in frames_to_plot])
-    for frame, ax, title in zip(frames_to_plot, axs, titles):
+    for frame, ax, chart_title in zip(frames_to_plot, axs, chart_titles):
         ax.imshow(
             frame.squeeze(dim=0),
             origin="lower",
@@ -85,53 +85,18 @@ def plot_frame(
                         fill=True
                     )
                 )
+        ax.set_title(f'{chart_title}', fontsize=14)
 
-        ax.set_title(f'{title}', fontsize=15)
-
+    fig.suptitle(title, fontsize=15)
     # Finalize and save the figure
     fig.tight_layout()
     destination_directory = './plots'
     os.makedirs(destination_directory, exist_ok=True)
     timestamp: dt.datetime = dt.datetime.now()
-    fig.savefig(
-        f"{destination_directory}/{timestamp.strftime('%Y%m%d%H%M%S')}"
-        f"{timestamp.microsecond // 1000:03d}.png"
-    )
+    if not filename:
+        filename =f"{destination_directory}/{timestamp.strftime('%Y%m%d%H%M%S')}{timestamp.microsecond // 1000:03d}.png"
+    else:
+        fig.savefig(f"{destination_directory}/{filename}.png")
     plt.close(fig)
 
 
-
-if __name__ == '__main__':
-
-    from common.functional import compute_velocity_field
-    from cfd.dataset import CFDDataset
-    from cfd.sensors import LHS, AroundCylinder
-    from cfd.embedding import Mask, Voronoi
-    
-    # sensor_generator = LHS(n_sensors=32)
-    sensor_generator = AroundCylinder(n_sensors=32)
-    # embedding_generator = Mask()
-    embedding_generator = Voronoi(weighted=False)
-
-    dataset = CFDDataset(
-        root='./data/val', 
-        init_sensor_timeframes=[0, 10, 20, 30, 40, 50],
-        n_fullstate_timeframes_per_chunk=10,
-        n_samplings_per_chunk=1,
-        resolution=(105, 180),
-        sensor_generator=sensor_generator, 
-        embedding_generator=embedding_generator,
-        seed=1,
-        already_preloaded=False,
-    )
-
-    sensor_timeframe_tensor, sensor_tensor, fullstate_timeframe_tensor, fullstate_tensor, _, _ = dataset[500]
-    sensor_positions = dataset.sensor_positions
-
-    plot_frame(
-        sensor_positions=sensor_positions,
-        sensor_frame=sensor_tensor[0],          # only get first frame
-        fullstate_frame=fullstate_tensor[0],    # only get first frame
-        reduction=lambda x: compute_velocity_field(x, dim=0),
-    )
-    

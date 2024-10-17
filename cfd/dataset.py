@@ -31,17 +31,18 @@ class DatasetMixin:
         # prepare sensor timeframes (fixed)
         sensor_timeframes: torch.Tensor = torch.tensor(self.init_sensor_timeframes) + torch.arange(n_chunks).unsqueeze(1)
         assert sensor_timeframes.shape == (n_chunks, len(self.init_sensor_timeframes))
-        return sensor_timeframes
+        return sensor_timeframes.long()
 
-    def prepare_fullstate_timeframes(self, seed: int) -> torch.Tensor:
-        # compute number of steps to reach n_timeframes (also the number of chunks)
+    def prepare_fullstate_timeframes(self, seed: int) -> torch.LongTensor:
         n_chunks = self.total_timeframes_per_case - max(self.init_sensor_timeframes)
-        # prepare fullstate timeframes (stochastic)
-        torch.random.manual_seed(seed=seed)
-        random_init_timeframes: torch.Tensor = torch.randperm(
-            n=max(self.init_sensor_timeframes)
-        )[:self.n_fullstate_timeframes_per_chunk].sort()[0]
-        fullstate_timeframes: torch.Tensor = random_init_timeframes + torch.arange(n_chunks).unsqueeze(1)
+        fullstate_timeframes: torch.Tensor = torch.empty((n_chunks, self.n_fullstate_timeframes_per_chunk), dtype=torch.long)
+        for chunk_idx in range(n_chunks):
+            torch.random.manual_seed(seed + chunk_idx)
+            random_init_timeframes = torch.randperm(
+                n=max(self.init_sensor_timeframes)
+            )[:self.n_fullstate_timeframes_per_chunk].sort()[0]
+            fullstate_timeframes[chunk_idx] = random_init_timeframes + chunk_idx
+
         assert fullstate_timeframes.shape == (n_chunks, self.n_fullstate_timeframes_per_chunk)
         return fullstate_timeframes
 
@@ -111,7 +112,7 @@ class CFDDataset(Dataset, DatasetMixin):
         sensor_timeframe_tensor: torch.Tensor = torch.load(
             os.path.join(self.sensor_timeframes_dest, f'st{prefix}{suffix}.pt'), 
             weights_only=True
-        ).float()
+        )
         sensor_tensor: torch.Tensor = torch.load(
             os.path.join(self.sensor_values_dest, f'sv{prefix}{suffix}.pt'), 
             weights_only=True
@@ -119,7 +120,7 @@ class CFDDataset(Dataset, DatasetMixin):
         fullstate_timeframe_tensor: torch.Tensor = torch.load(
             os.path.join(self.fullstate_timeframes_dest, f'ft{prefix}{suffix}.pt'), 
             weights_only=True
-        ).float()
+        )
         fullstate_tensor: torch.Tensor = torch.load(
             os.path.join(self.fullstate_values_dest, f'fv{prefix}{suffix}.pt'), 
             weights_only=True
@@ -135,7 +136,7 @@ class CFDDataset(Dataset, DatasetMixin):
         # prepare dest directories
         if os.path.exists(self.dest): 
             confirmed: bool = input(
-                'Enter "yes" to permanently DELETE the loaded dataset and reload over again: '
+                f'Enter "yes" to permanently DELETE the loaded dataset in {self.dest} and reload over again: '
             ) == 'yes'
             if confirmed:
                 shutil.rmtree(self.dest)
@@ -152,6 +153,7 @@ class CFDDataset(Dataset, DatasetMixin):
 
         # prepare sensor positions
         self.sensor_generator.resolution = self.resolution
+        self.sensor_generator.seed = self.seed
         if isinstance(self.sensor_generator, LHS):
             self.sensor_positions = self.sensor_generator()
         else:
@@ -226,29 +228,5 @@ class CFDDataset(Dataset, DatasetMixin):
         ]
         with open(os.path.join(self.metadata_dest, 'metadata.json'), 'w') as f:
             json.dump(obj=records, fp=f, indent=2)
-
-
-
-if __name__ == '__main__':
-    # sensor_generator = LHS(n_sensors=32)
-    sensor_generator = AroundCylinder(n_sensors=32)
-    # embedding_generator = Mask()
-    embedding_generator = Voronoi(weighted=False)
-
-    self = CFDDataset(
-        root='./data/val', 
-        init_sensor_timeframes=[0, 5, 10, 15, 20, 25, 30, 35, 40, 45, 50],
-        n_fullstate_timeframes_per_chunk=10,
-        n_samplings_per_chunk=5,
-        resolution=(140, 240),
-        sensor_generator=sensor_generator, 
-        embedding_generator=embedding_generator,
-        seed=1,
-    )
-    sensor_timeframe_tensor, sensor_tensor, fullstate_timeframe_tensor, fullstate_tensor = self[500]
-    print(sensor_timeframe_tensor.shape)
-    print(sensor_tensor.shape)
-    print(fullstate_timeframe_tensor.shape)
-    print(fullstate_tensor.shape)
 
 

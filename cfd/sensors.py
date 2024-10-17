@@ -47,12 +47,8 @@ class LHS(SensorGenerator):
         assert self.resolution is not None, 'self.resolution must be set before calling a SensorGenerator'
         lhs_samples: np.ndarray = self._sampling()
         # absolute positions
-        sensor_positions: torch.Tensor = torch.zeros((self.n_sensors, len(self.resolution)), dtype=torch.int32)
-        for sensor in range(self.n_sensors):
-            for dim in range(len(self.resolution)):
-                sensor_positions[sensor, dim] = int(lhs_samples[sensor, dim] * self.resolution[dim])
-
-        return sensor_positions
+        sensor_positions = torch.from_numpy(lhs_samples) * torch.tensor(data=self.resolution)
+        return sensor_positions.int()
 
     def _sampling(self) -> np.ndarray:
         np.random.seed(self.seed)
@@ -103,24 +99,25 @@ class AroundCylinder(SensorGenerator):
 
 
 if __name__ == '__main__':
-    resolution = (256, 512)
-    # self = LHS(n_sensors=32)
-    # sensor_positions = self.generate()
-
-    self = AroundCylinder(n_sensors=32)
-    self.resolution = resolution
-    sensor_positions = self(hw_meters=(0.14, 0.24), center_hw_meters=(0.08, 0.08), radius_meters=0.01)
+    resolution = (140, 240)
+    lhs = LHS(n_sensors=32)
+    lhs.resolution = resolution
+    ac = AroundCylinder(n_sensors=32)
+    ac.resolution = resolution
+    a = lhs()
+    b = ac(hw_meters=(0.14, 0.24), center_hw_meters=(0.08, 0.08), radius_meters=0.01)
     import matplotlib.pyplot as plt
 
-    # Extract x and y coordinates
-    x_coords = sensor_positions[:, 1].numpy()
-    y_coords = sensor_positions[:, 0].numpy()
+    for name, sensor_positions in zip(('lhs', 'ac'), (a, b)):
+        # Extract x and y coordinates
+        x_coords = sensor_positions[:, 1].numpy()
+        y_coords = sensor_positions[:, 0].numpy()
 
-    plt.figure(figsize=(8, 4))
-    plt.xlim(0, resolution[1])
-    plt.ylim(0, resolution[0])
-    plt.scatter(x_coords, y_coords, color='red', marker='o')
-    plt.grid(True)
-    plt.savefig('test.png')
+        plt.figure(figsize=(8, 4))
+        plt.xlim(0, resolution[1])
+        plt.ylim(0, resolution[0])
+        plt.scatter(x_coords, y_coords, color='red', marker='o')
+        plt.grid(True)
+        plt.savefig(f'{name}.png')
 
     
