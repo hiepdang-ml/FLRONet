@@ -265,9 +265,8 @@ class Predictor(Worker, DatasetMixin):
         self.sensor_position_path: str | None = sensor_position_path
         self.embedding_generator: Voronoi | Mask | None = embedding_generator
         if sensor_position_path is not None:
-            self.sensor_positions: torch.Tensor = (torch.load(sensor_position_path, weights_only=True).cuda()).int()
+            self.sensor_positions: torch.Tensor = torch.load(sensor_position_path, weights_only=True).cuda().int()
     
-        # self.H, self.W = self.net.resolution
         self.loss_function: nn.Module = nn.MSELoss(reduction='sum')
         self.metric = nn.MSELoss(reduction='sum')
 
