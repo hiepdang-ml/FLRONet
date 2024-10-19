@@ -29,8 +29,7 @@ def main(config: Dict[str, Any]) -> None:
     sensor_generator: str                       = str(config['dataset']['sensor_generator'])
     embedding_generator: str                    = str(config['dataset']['embedding_generator'])
     seed: int                                   = int(config['dataset']['seed'])
-    train_already_preloaded: bool               = bool(config['dataset_preloaded']['train'])
-    val_already_preloaded: bool                 = bool(config['dataset_preloaded']['val'])
+    already_preloaded: bool                     = bool(config['dataset']['already_preloaded'])
     branch_net: str                             = str(config['architecture']['branch_net'])
     n_channels: int                             = int(config['architecture']['n_channels'])
     embedding_dim: int                          = int(config['architecture']['embedding_dim'])
@@ -74,10 +73,10 @@ def main(config: Dict[str, Any]) -> None:
         sensor_generator=sensor_generator, 
         embedding_generator=embedding_generator,
         seed=seed,
-        already_preloaded=train_already_preloaded,
+        already_preloaded=already_preloaded,
     )
     val_dataset = CFDDataset(
-        root='./data/val', 
+        root='./data/test', 
         init_sensor_timeframes=init_sensor_timeframes,
         n_fullstate_timeframes_per_chunk=n_fullstate_timeframes_per_chunk,
         n_samplings_per_chunk=n_samplings_per_chunk,
@@ -85,7 +84,7 @@ def main(config: Dict[str, Any]) -> None:
         sensor_generator=sensor_generator, 
         embedding_generator=embedding_generator,
         seed=seed,
-        already_preloaded=val_already_preloaded,
+        already_preloaded=already_preloaded,
     )
 
     # Load the model

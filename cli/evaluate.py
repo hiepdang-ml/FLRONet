@@ -29,7 +29,7 @@ def main(config: Dict[str, Any]) -> None:
     sensor_generator: str                       = str(config['dataset']['sensor_generator'])
     embedding_generator: str                    = str(config['dataset']['embedding_generator'])
     seed: int                                   = int(config['dataset']['seed'])
-    test_already_preloaded: bool                = bool(config['dataset_preloaded']['test'])
+    already_preloaded: bool                     = bool(config['dataset']['already_preloaded'])
     from_checkpoint: str                        = str(config['evaluate']['from_checkpoint'])
 
     # Instatiate the sensor generator
@@ -58,7 +58,7 @@ def main(config: Dict[str, Any]) -> None:
         sensor_generator=sensor_generator, 
         embedding_generator=embedding_generator,
         seed=seed,
-        already_preloaded=test_already_preloaded,
+        already_preloaded=already_preloaded,
     )
 
     # Load the model

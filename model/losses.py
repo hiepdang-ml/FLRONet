@@ -80,7 +80,7 @@ if __name__ == '__main__':
     embedding_generator = Voronoi(weighted=False)
 
     dataset = CFDDataset(
-        root='./data/val', 
+        root='./data/test', 
         init_sensor_timeframes=[0, 5, 10, 15, 20, 25, 30, 35, 40, 45, 50],
         n_fullstate_timeframes_per_chunk=10,
         n_samplings_per_chunk=1,

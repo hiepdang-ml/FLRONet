@@ -94,9 +94,9 @@ class Trainer(Worker):
 
         self.grad_scaler = GradScaler(device="cuda")
         if torch.cuda.device_count() > 1:
-            self.net: FLRONetWithFNO = nn.DataParallel(net).cuda()
+            self.net: FLRONetWithFNO | FLRONetWithUNet = nn.DataParallel(net).cuda()
         elif torch.cuda.device_count() == 1:
-            self.net: FLRONetWithFNO = net.cuda()
+            self.net: FLRONetWithFNO | FLRONetWithUNet = net.cuda()
         else:
             raise ValueError('No GPUs are found in the system')
         

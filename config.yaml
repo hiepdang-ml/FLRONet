@@ -3,15 +3,11 @@ dataset:
   n_fullstate_timeframes_per_chunk: 1
   n_samplings_per_chunk: 1
   resolution: [140, 240]
-  n_sensors: 64
+  n_sensors: 32
   sensor_generator: 'LHS'  # AroundCylinder | LHS
   embedding_generator: 'Mask'  # Voronoi | Mask
   seed: 1
-
-dataset_preloaded:
-  train: true
-  val: true
-  test: true
+  already_preloaded: true
 
 architecture:
   branch_net: 'FNO'  # FNO | UNet
@@ -21,7 +17,7 @@ architecture:
   from_checkpoint: null   # set to null to train from scratch
   # FNO-specific configs:
   n_fno_layers: 4
-  n_fno_modes: 24
+  n_fno_modes: 64
 
 training:
   train_batch_size: 4
