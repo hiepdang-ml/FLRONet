@@ -6,7 +6,7 @@ from torch.optim import Optimizer, Adam
 
 from cfd.sensors import LHS, AroundCylinder
 from cfd.embedding import Mask, Voronoi
-from model import FLRONet
+from model import FLRONetWithFNO, FLRONetWithUNet
 from cfd.dataset import CFDDataset
 from common.training import CheckpointLoader
 from worker import Trainer
@@ -31,11 +31,12 @@ def main(config: Dict[str, Any]) -> None:
     seed: int                                   = int(config['dataset']['seed'])
     train_already_preloaded: bool               = bool(config['dataset_preloaded']['train'])
     val_already_preloaded: bool                 = bool(config['dataset_preloaded']['val'])
+    branch_net: str                             = str(config['architecture']['branch_net'])
     n_channels: int                             = int(config['architecture']['n_channels'])
     embedding_dim: int                          = int(config['architecture']['embedding_dim'])
+    n_stacked_networks: int                     = int(config['architecture']['n_stacked_networks'])
     n_fno_layers: int                           = int(config['architecture']['n_fno_layers'])
     n_fno_modes: int                            = int(config['architecture']['n_fno_modes'])
-    n_stacked_networks: int                     = int(config['architecture']['n_stacked_networks'])
     from_checkpoint: Optional[str]              = config['architecture']['from_checkpoint']
     train_batch_size: int                       = int(config['training']['train_batch_size'])
     val_batch_size: int                         = int(config['training']['val_batch_size'])
@@ -90,16 +91,23 @@ def main(config: Dict[str, Any]) -> None:
     # Load the model
     if from_checkpoint is not None:
         checkpoint_loader = CheckpointLoader(checkpoint_path=from_checkpoint)
-        net: FLRONet = checkpoint_loader.load(scope=globals())[0].cuda()    # ignore optimizer
+        net: FLRONetWithFNO = checkpoint_loader.load(scope=globals())[0].cuda()    # ignore optimizer
     else:
-        net = FLRONet(
-            n_channels=n_channels, n_fno_layers=n_fno_layers, 
-            n_fno_modes=n_fno_modes, embedding_dim=embedding_dim,
-            total_timeframes=train_dataset.total_timeframes_per_case,
-            n_stacked_networks=n_stacked_networks,
-        ).cuda()
-        
-    # Load global trainer    
+        if branch_net.lower() == 'fno':
+            net = FLRONetWithFNO(
+                n_channels=n_channels, n_fno_layers=n_fno_layers, 
+                n_fno_modes=n_fno_modes, embedding_dim=embedding_dim,
+                total_timeframes=train_dataset.total_timeframes_per_case,
+                n_stacked_networks=n_stacked_networks,
+            ).cuda()
+        else:
+            net = FLRONetWithUNet(
+                n_channels=n_channels, embedding_dim=embedding_dim,
+                total_timeframes=train_dataset.total_timeframes_per_case,
+                n_stacked_networks=n_stacked_networks,
+            ).cuda()
+
+    # Load global trainer
     trainer = Trainer(
         net=net, 
         lr=learning_rate,

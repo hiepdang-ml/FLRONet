@@ -14,7 +14,7 @@ from torch.amp import autocast, GradScaler
 from common.training import Accumulator, EarlyStopping, Timer, Logger, CheckpointSaver
 from cfd.dataset import CFDDataset, DatasetMixin
 from cfd.embedding import Voronoi, Mask
-from model import FLRONet
+from model import FLRONetWithFNO, FLRONetWithUNet
 from model.losses import CustomMSE
 from common.plotting import plot_frame
 from common.functional import compute_velocity_field
@@ -51,7 +51,7 @@ class Trainer(Worker):
 
     def __init__(
         self, 
-        net: FLRONet,
+        net: FLRONetWithFNO,
         lr: float,
         a: float,
         r: float,
@@ -94,9 +94,9 @@ class Trainer(Worker):
 
         self.grad_scaler = GradScaler(device="cuda")
         if torch.cuda.device_count() > 1:
-            self.net: FLRONet = nn.DataParallel(net).cuda()
+            self.net: FLRONetWithFNO = nn.DataParallel(net).cuda()
         elif torch.cuda.device_count() == 1:
-            self.net: FLRONet = net.cuda()
+            self.net: FLRONetWithFNO = net.cuda()
         else:
             raise ValueError('No GPUs are found in the system')
         
@@ -120,11 +120,11 @@ class Trainer(Worker):
             optimizer=self.optimizer,
             dirpath=checkpoint_path,
         )
+        checkpoint_prefix: str = 'flronetfno' if isinstance(self.net, FLRONetWithFNO) else 'flronetunet'
         self.net.train()
         
         for epoch in range(1, n_epochs + 1):
             timer.start_epoch(epoch)
-            # in enumerate(tqdm(self.train_dataloader, start=1), start=1):
             for batch, (
                 sensor_timeframes, sensor_frames, fullstate_timeframes, fullstate_frames, _, _
             ) in enumerate(tqdm(self.train_dataloader, desc=f'Epoch {epoch}/{n_epochs}: '), start=1):
@@ -181,7 +181,7 @@ class Trainer(Worker):
                 checkpoint_saver.save(
                     model_states=self.net.state_dict(), 
                     optimizer_states=self.optimizer.state_dict(),
-                    filename=f'epoch{epoch}.pt',
+                    filename=f'{checkpoint_prefix}{epoch}.pt',
                 )
             
             # Reset metric records for next epoch
@@ -207,9 +207,9 @@ class Trainer(Worker):
         # Always save last checkpoint
         if checkpoint_path:
             checkpoint_saver.save(
-                model_states=self.global_operator.state_dict(), 
+                model_states=self.net.state_dict(), 
                 optimizer_states=self.optimizer.state_dict(),
-                filename=f'epoch{epoch}.pt',
+                filename=f'{checkpoint_prefix}{epoch}.pt',
             )
 
     def evaluate(self) -> float:
@@ -257,7 +257,7 @@ class Predictor(Worker, DatasetMixin):
 
     def __init__(
         self, 
-        net: FLRONet, 
+        net: FLRONetWithFNO, 
         sensor_position_path: str | None = None, 
         embedding_generator: Voronoi | Mask | None = None
     ):
@@ -265,9 +265,9 @@ class Predictor(Worker, DatasetMixin):
         self.sensor_position_path: str | None = sensor_position_path
         self.embedding_generator: Voronoi | Mask | None = embedding_generator
         if sensor_position_path is not None:
-            self.sensor_positions: torch.Tensor = torch.load(sensor_position_path, weights_only=True).cuda()
+            self.sensor_positions: torch.Tensor = (torch.load(sensor_position_path, weights_only=True).cuda() * 2).int()
     
-        self.H, self.W = self.net.resolution
+        # self.H, self.W = self.net.resolution
         self.loss_function: nn.Module = nn.MSELoss(reduction='sum')
         self.metric = nn.MSELoss(reduction='sum')
 
@@ -276,13 +276,16 @@ class Predictor(Worker, DatasetMixin):
         case_dir: str, 
         sensor_timeframes: List[int],
         reconstruction_timeframes: List[int],
+        resolution: Tuple[int, int],
     ):
         assert isinstance(self.sensor_position_path, str)
         assert isinstance(self.embedding_generator, (Voronoi, Mask))
-        assert len(sensor_timeframes) == self.net.n_sensor_timeframes
-        assert len(reconstruction_timeframes) == self.net.n_fullstate_timeframes
         assert min(sensor_timeframes) <= min(reconstruction_timeframes)
         assert max(reconstruction_timeframes) <= max(sensor_timeframes)
+
+        n_sensor_timeframes: int = len(sensor_timeframes)
+        n_fullstate_timeframes: int = len(reconstruction_timeframes)
+        H, W = resolution
 
         self.net.eval()
         # load raw data
@@ -297,12 +300,12 @@ class Predictor(Worker, DatasetMixin):
         sensor_frames: torch.Tensor = data[sensor_timeframes]
         # resize sensor frames (original resolution is 64 x 64, which is not proportional to 0.14m x 0.24m)
         sensor_frames = F.interpolate(
-            input=sensor_frames.flatten(0, 1), size=(self.H, self.W), mode='bicubic'
+            input=sensor_frames.flatten(0, 1), size=(H, W), mode='bicubic'
         )
-        sensor_frames = sensor_frames.reshape(1, self.net.n_sensor_timeframes, 2, self.H, self.W)
+        sensor_frames = sensor_frames.reshape(1, n_sensor_timeframes, 2, H, W)
         # compute sensor data for entire space
         sensor_frames = self.embedding_generator(data=sensor_frames, sensor_positions=self.sensor_positions)
-        assert sensor_frames.shape == (1, self.net.n_sensor_timeframes, 2, self.H, self.W)
+        assert sensor_frames.shape == (1, n_sensor_timeframes, 2, H, W)
         with torch.no_grad():
             # reconstruct
             with autocast(device_type="cuda", dtype=torch.float16):
@@ -314,13 +317,13 @@ class Predictor(Worker, DatasetMixin):
                 )
 
         assert reconstruction_frames.shape == (
-            1, self.net.n_fullstate_timeframes, self.net.n_channels, self.H, self.W
+            1, n_fullstate_timeframes, self.net.n_channels, H, W
         )
         # visualization
         reconstruction_frames = reconstruction_frames.squeeze(dim=0)
         reconstruction_timeframes = reconstruction_timeframes.squeeze(dim=0)
         case_name: str = os.path.basename(case_dir)
-        for frame_idx in range(reconstruction_frames.shape[0]):
+        for frame_idx in tqdm(range(reconstruction_frames.shape[0]), desc=f'{case_name}: '):
             reconstruction_frame: torch.Tensor = reconstruction_frames[frame_idx]
             at_timeframe = int(reconstruction_timeframes[frame_idx].item())
             plot_frame(
@@ -328,7 +331,7 @@ class Predictor(Worker, DatasetMixin):
                 reconstruction_frame=reconstruction_frame,
                 reduction=lambda x: compute_velocity_field(x, dim=0),
                 title=f'{case_name.upper()} t={at_timeframe * 0.001:.3f}s',
-                filename=f'{case_name.lower()}_f{at_timeframe}'
+                filename=f'{case_name.lower()}_f{str(at_timeframe).zfill(3)}'
             )
 
     def predict_from_dataset(self, dataset: CFDDataset) -> None:
@@ -342,7 +345,7 @@ class Predictor(Worker, DatasetMixin):
             shuffle=False
         )
         with torch.no_grad():
-            for sensor_timeframes, sensor_frames, fullstate_timeframes, fullstate_frames, case_names, sampling_ids in dataloader:
+            for sensor_timeframes, sensor_frames, fullstate_timeframes, fullstate_frames, case_names, sampling_ids in tqdm(dataloader):
                 # Data validation
                 self._validate_inputs(sensor_timeframes, sensor_frames, fullstate_timeframes, fullstate_frames)
                 # Move to GPU
@@ -385,6 +388,6 @@ class Predictor(Worker, DatasetMixin):
                             f't={at_timeframe * 0.001:.3f}s, '
                             f'RMSE: {frame_mean_rmse:.3f}'
                         ),
-                        filename=f'{case_name.lower()}s{sampling_id}_f{at_timeframe}'
+                        filename=f'{case_name.lower()}s{sampling_id}_f{str(at_timeframe).zfill(3)}'
                     )
 

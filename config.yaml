@@ -14,12 +14,14 @@ dataset_preloaded:
   test: true
 
 architecture:
+  branch_net: 'FNO'  # FNO | UNet
   n_channels: 2   # fixed for 2d problems
   embedding_dim: 64
-  n_fno_layers: 4
-  n_fno_modes: 24
   n_stacked_networks: 2
   from_checkpoint: null   # set to null to train from scratch
+  # FNO-specific configs:
+  n_fno_layers: 4
+  n_fno_modes: 24
 
 training:
   train_batch_size: 4
@@ -33,14 +35,15 @@ training:
   save_frequency: 1
 
 evaluate:
-  from_checkpoint: '.checkpoints/epoch1.pt'
+  from_checkpoint: '.checkpoints/flronetfno14.pt'
 
 inference:
-  case_dir: 'data/test/case0006'
-  sensor_timeframes: [40, 45, 50, 55, 60]
-  reconstruction_timeframes: [47]
+  case_dir: 'data/test/case0025'
+  sensor_timeframes: [340, 345, 350, 355, 360]
+  reconstruction_timeframes: [346]
+  resolution: [280, 480]
   sensor_position_path: 'tensors/train/sensor_positions/pos.pt'
-  from_checkpoint: '.checkpoints/epoch3.pt'
+  from_checkpoint: '.checkpoints/flronetfno14.pt'
 
 
 

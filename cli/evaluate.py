@@ -6,7 +6,7 @@ from torch.optim import Optimizer, Adam
 
 from cfd.sensors import LHS, AroundCylinder
 from cfd.embedding import Mask, Voronoi
-from model.flronet import FLRONet
+from model.flronet import FLRONetWithFNO, FLRONetWithUNet
 from cfd.dataset import CFDDataset
 from common.training import CheckpointLoader
 from worker import Predictor
@@ -63,7 +63,7 @@ def main(config: Dict[str, Any]) -> None:
 
     # Load the model
     checkpoint_loader = CheckpointLoader(checkpoint_path=from_checkpoint)
-    net: FLRONet = checkpoint_loader.load(scope=globals())[0]
+    net: FLRONetWithFNO | FLRONetWithUNet = checkpoint_loader.load(scope=globals())[0]
         
     # Make prediction
     predictor = Predictor(net=net)

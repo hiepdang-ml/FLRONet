@@ -25,17 +25,17 @@ class DatasetMixin:
             dim=1
         ).float()
 
-    def prepare_sensor_timeframes(self) -> torch.LongTensor:
+    def prepare_sensor_timeframes(self) -> torch.IntTensor:
         # compute number of steps to reach n_timeframes (also the number of chunks)
         n_chunks = self.total_timeframes_per_case - max(self.init_sensor_timeframes)
         # prepare sensor timeframes (fixed)
         sensor_timeframes: torch.Tensor = torch.tensor(self.init_sensor_timeframes) + torch.arange(n_chunks).unsqueeze(1)
         assert sensor_timeframes.shape == (n_chunks, len(self.init_sensor_timeframes))
-        return sensor_timeframes.long()
+        return sensor_timeframes.int()
 
-    def prepare_fullstate_timeframes(self, seed: int) -> torch.LongTensor:
+    def prepare_fullstate_timeframes(self, seed: int) -> torch.IntTensor:
         n_chunks = self.total_timeframes_per_case - max(self.init_sensor_timeframes)
-        fullstate_timeframes: torch.Tensor = torch.empty((n_chunks, self.n_fullstate_timeframes_per_chunk), dtype=torch.long)
+        fullstate_timeframes: torch.Tensor = torch.empty((n_chunks, self.n_fullstate_timeframes_per_chunk), dtype=torch.int)
         for chunk_idx in range(n_chunks):
             torch.random.manual_seed(seed + chunk_idx)
             random_init_timeframes = torch.randperm(

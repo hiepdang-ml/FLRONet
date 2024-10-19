@@ -1,11 +1,11 @@
 import argparse
-from typing import List, Dict, Any
+from typing import Tuple, List, Dict, Any
 
 import yaml
 from torch.optim import Optimizer, Adam
 
 from cfd.embedding import Mask, Voronoi
-from model.flronet import FLRONet
+from model.flronet import FLRONetWithFNO, FLRONetWithUNet
 from common.training import CheckpointLoader
 from worker import Predictor
 
@@ -23,6 +23,7 @@ def main(config: Dict[str, Any]) -> None:
     case_dir: str                               = str(config['inference']['case_dir'])
     sensor_timeframes: List[int]                = list(config['inference']['sensor_timeframes'])
     reconstruction_timeframes: List[int]        = list(config['inference']['reconstruction_timeframes'])
+    resolution: Tuple[int, int]                 = tuple(config['inference']['resolution'])
     sensor_position_path: str                   = str(config['inference']['sensor_position_path'])
     from_checkpoint: str                        = str(config['inference']['from_checkpoint'])
 
@@ -36,7 +37,7 @@ def main(config: Dict[str, Any]) -> None:
 
     # Load the model
     checkpoint_loader = CheckpointLoader(checkpoint_path=from_checkpoint)
-    net: FLRONet = checkpoint_loader.load(scope=globals())[0]
+    net: FLRONetWithFNO | FLRONetWithUNet = checkpoint_loader.load(scope=globals())[0]
     
     # Make prediction
     predictor = Predictor(
@@ -48,6 +49,7 @@ def main(config: Dict[str, Any]) -> None:
         case_dir=case_dir,
         sensor_timeframes=sensor_timeframes,
         reconstruction_timeframes=reconstruction_timeframes,
+        resolution=resolution
     )
 
 

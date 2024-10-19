@@ -1,7 +1,77 @@
 from typing import List, Tuple
+import math
 
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
+
+
+class UNet(nn.Module):
+
+    def __init__(self, n_channels: int, embedding_dim: int):
+        super().__init__()
+        self.n_channels: int = n_channels
+        self.embedding_dim: int = embedding_dim
+        # Encoder
+        self.enc_conv1 = self.conv_block(in_channels=n_channels, out_channels=embedding_dim)
+        self.enc_conv2 = self.conv_block(in_channels=embedding_dim, out_channels=embedding_dim * 2)
+        self.enc_conv3 = self.conv_block(in_channels=embedding_dim * 2, out_channels=embedding_dim * 4)
+        self.pool = nn.MaxPool2d(kernel_size=2, stride=2)
+        # Bottleneck
+        self.bottleneck_conv = self.conv_block(in_channels=embedding_dim * 4, out_channels=embedding_dim * 8)
+        # Decoder
+        self.upconv3 = self.upconv(in_channels=embedding_dim * 8, out_channels=embedding_dim * 4)
+        self.dec_conv3 = self.conv_block(in_channels=embedding_dim * 8, out_channels=embedding_dim * 4)
+        self.upconv2 = self.upconv(in_channels=embedding_dim * 4, out_channels=embedding_dim * 2)
+        self.dec_conv2 = self.conv_block(in_channels=embedding_dim * 4, out_channels=embedding_dim * 2)
+        self.upconv1 = self.upconv(in_channels=embedding_dim * 2, out_channels=embedding_dim)
+        self.dec_conv1 = self.conv_block(in_channels=embedding_dim * 2, out_channels=embedding_dim)
+        # Final convolution
+        self.final_conv = nn.Conv2d(in_channels=embedding_dim, out_channels=n_channels, kernel_size=1)
+
+    def forward(self, input: torch.Tensor) -> torch.Tensor:
+        assert input.ndim == 5
+        batch_size, n_timesteps, n_channels, H, W = input.shape
+        assert n_channels == self.n_channels
+
+        # Layer Norm
+        reshaped_input: torch.Tensor = input.flatten(start_dim=0, end_dim=1)
+        # Encoder
+        enc1: torch.Tensor = self.enc_conv1(reshaped_input)
+        enc2: torch.Tensor = self.enc_conv2(self.pool(enc1))
+        enc3: torch.Tensor = self.enc_conv3(self.pool(enc2))
+        # Bottleneck
+        bottleneck: torch.Tensor = self.bottleneck_conv(self.pool(enc3))
+        # Decoder
+        dec3: torch.Tensor = self.upconv3(bottleneck)
+        if dec3.shape[-2:] != enc3.shape[-2:]:  # due to input resolution not a power of 2
+            dec3 = F.interpolate(dec3, size=enc3.shape[-2:], mode='bilinear', align_corners=False)
+        dec3 = torch.cat(tensors=[dec3, enc3], dim=1)
+        dec3 = self.dec_conv3(dec3)
+        dec2: torch.Tensor = self.upconv2(dec3)
+        dec2 = torch.cat(tensors=[dec2, enc2], dim=1)
+        dec2 = self.dec_conv2(dec2)
+        dec1: torch.Tensor = self.upconv1(dec2)
+        dec1 = torch.cat(tensors=[dec1, enc1], dim=1)
+        dec1 = self.dec_conv1(dec1)
+        # Final output
+        reshaped_output: torch.Tensor = self.final_conv(dec1)
+        assert reshaped_output.shape == reshaped_input.shape
+        output: torch.Tensor = reshaped_output.reshape(batch_size, n_timesteps, self.n_channels, H, W)
+        return output
+    
+    def conv_block(self, in_channels: int, out_channels: int) -> nn.Module:
+        return nn.Sequential(
+            nn.Conv2d(in_channels=in_channels, out_channels=out_channels, kernel_size=3, padding=1),
+            nn.BatchNorm2d(num_features=out_channels),
+            nn.ReLU(),
+            nn.Conv2d(in_channels=out_channels, out_channels=out_channels, kernel_size=3, padding=1),
+            nn.BatchNorm2d(num_features=out_channels),
+            nn.ReLU(),
+        )
+
+    def upconv(self, in_channels: int, out_channels: int) -> nn.Module:
+        return nn.ConvTranspose2d(in_channels=in_channels, out_channels=out_channels, kernel_size=2, stride=2)
 
 
 class FNOLayer(nn.Module):
@@ -18,15 +88,15 @@ class FNOLayer(nn.Module):
             self.scale * torch.randn(2, self.n_modes, self.n_modes, embedding_dim, embedding_dim, dtype=torch.float)
         )
         self.W = nn.Linear(in_features=embedding_dim, out_features=embedding_dim)
-        self.ln = nn.LayerNorm(normalized_shape=embedding_dim)
 
+    @torch.autocast(device_type="cuda", enabled=False)
     def forward(self, input: torch.Tensor) -> torch.Tensor:
         assert input.ndim == 5
         batch_size, n_timesteps, H, W, embedding_dim = input.shape
         assert embedding_dim == self.embedding_dim
 
-        normalized_input: torch.Tensor = self.ln(input)
-        fourier_coeff: torch.Tensor = torch.fft.rfft2(input=normalized_input, dim=(2, 3), norm="ortho")
+        input = input.float()
+        fourier_coeff: torch.Tensor = torch.fft.rfft2(input=input, dim=(2, 3), norm="ortho")
         h_modes = fourier_coeff.shape[2]
         w_modes = fourier_coeff.shape[3]
         assert (h_modes, w_modes) == (H, W // 2 + 1)
@@ -51,7 +121,7 @@ class FNOLayer(nn.Module):
         output: torch.Tensor = torch.complex(real=output_real, imag=output_imag)
         output = torch.fft.irfft2(input=output, s=(H, W), dim=(2, 3), norm="ortho")
         assert output.shape == (batch_size, n_timesteps, H, W, embedding_dim)
-        output = self.W(normalized_input) + output
+        output = self.W(input) + output
         output = torch.relu(output)
         assert output.shape == input.shape
         return output
@@ -73,7 +143,7 @@ class FNOLayer(nn.Module):
         return real_part, imag_part
 
 
-class StackedBranchNet(nn.Module):
+class StackedFNOBranchNet(nn.Module):
 
     def __init__(self, n_channels: int, n_fno_layers: int, n_fno_modes: int, embedding_dim: int):
         super().__init__()
@@ -83,7 +153,7 @@ class StackedBranchNet(nn.Module):
         self.embedding_dim: int = embedding_dim
 
         self.embedding_layer = nn.Linear(in_features=n_channels, out_features=embedding_dim)
-        self.afno_block = nn.Sequential(*[FNOLayer(embedding_dim=embedding_dim, n_modes=n_fno_modes) for _ in range(n_fno_layers)])
+        self.fno_block = nn.Sequential(*[FNOLayer(embedding_dim=embedding_dim, n_modes=n_fno_modes) for _ in range(n_fno_layers)])
         self.mlp = nn.Linear(in_features=embedding_dim, out_features=n_channels)
 
     def forward(self, sensor_value: torch.Tensor) -> torch.Tensor:
@@ -92,10 +162,29 @@ class StackedBranchNet(nn.Module):
 
         output: torch.Tensor = sensor_value.permute(0, 1, 3, 4, 2)
         output = self.embedding_layer(output)   # (batch_size, n_timeframes, H, W, self.embedding_dim)
-        output = self.afno_block(output)        # (batch_size, n_timeframes, H, W, self.embedding_dim)
+        output = self.fno_block(output)         # (batch_size, n_timeframes, H, W, self.embedding_dim)
         output = self.mlp(output)               # (batch_size, n_timeframes, H, W, self.n_channels)
         output: torch.Tensor = output.permute(0, 1, 4, 2, 3)
         assert output.shape == sensor_value.shape
+        return output
+    
+
+class StackedUNetranchNet(nn.Module):
+
+    def __init__(self, n_channels: int, embedding_dim: int):
+        super().__init__()
+        self.n_channels: int = n_channels
+        self.embedding_dim: int = embedding_dim
+
+        self.embedding_layer = nn.Linear(in_features=n_channels, out_features=embedding_dim)
+        self.unet = UNet(n_channels=n_channels, embedding_dim=embedding_dim)
+        self.mlp = nn.Linear(in_features=embedding_dim, out_features=n_channels)
+
+    def forward(self, sensor_value: torch.Tensor) -> torch.Tensor:
+        batch_size, n_timeframes, n_channels, H, W = sensor_value.shape
+        assert n_channels == self.n_channels
+        output: torch.Tensor = self.unet(sensor_value)
+        assert output.shape == (batch_size, n_timeframes, n_channels, H, W)
         return output
 
 
@@ -123,30 +212,15 @@ class StackedTrunkNet(nn.Module):
         return output
 
 
-class FLRONet(nn.Module):
+class _BaseFLRONet(nn.Module):
 
-    def __init__(
-        self,
-        n_channels: int, n_fno_layers: int, n_fno_modes: int, 
-        embedding_dim: int, total_timeframes: int, n_stacked_networks: int,
-    ):
+    def __init__(self, n_channels: int, embedding_dim: int, total_timeframes: int, n_stacked_networks: int):
         super().__init__()
         self.n_channels: int = n_channels
-        self.n_fno_layers: int = n_fno_layers
-        self.n_fno_modes: int = n_fno_modes
         self.embedding_dim: int = embedding_dim
         self.total_timeframes: int = total_timeframes
         self.n_stacked_networks: int = n_stacked_networks
 
-        self.branch_nets = nn.ModuleList(
-            modules=[
-                StackedBranchNet(
-                    n_channels=n_channels, n_fno_layers=n_fno_layers, 
-                    n_fno_modes=n_fno_modes, embedding_dim=embedding_dim,
-                )
-                for _ in range(n_stacked_networks)
-            ]
-        )
         self.trunk_nets = nn.ModuleList(
             modules=[
                 StackedTrunkNet(embedding_dim=embedding_dim, total_timeframes=total_timeframes)
@@ -175,7 +249,7 @@ class FLRONet(nn.Module):
         )
         for i in range(self.n_stacked_networks):
             # branch
-            branch_net: StackedBranchNet = self.branch_nets[i]
+            branch_net: StackedFNOBranchNet = self.branch_nets[i]
             branch_output: torch.Tensor = branch_net(sensor_values)
             # trunk
             trunk_net: StackedTrunkNet = self.trunk_nets[i]
@@ -189,4 +263,42 @@ class FLRONet(nn.Module):
 
         return output + self.bias
 
+
+class FLRONetWithFNO(_BaseFLRONet):
+
+    def __init__(
+        self,
+        n_channels: int, n_fno_layers: int, n_fno_modes: int, 
+        embedding_dim: int, total_timeframes: int, n_stacked_networks: int,
+    ):
+        super().__init__(
+            n_channels=n_channels, embedding_dim=embedding_dim, 
+            total_timeframes=total_timeframes, n_stacked_networks=n_stacked_networks
+        )
+        self.n_fno_layers: int = n_fno_layers
+        self.n_fno_modes: int = n_fno_modes
+        self.branch_nets = nn.ModuleList(
+            modules=[
+                StackedFNOBranchNet(
+                    n_channels=n_channels, n_fno_layers=n_fno_layers, 
+                    n_fno_modes=n_fno_modes, embedding_dim=embedding_dim,
+                )
+                for _ in range(n_stacked_networks)
+            ]
+        )
+
+
+class FLRONetWithUNet(_BaseFLRONet):
+
+    def __init__(self, n_channels: int, embedding_dim: int, total_timeframes: int, n_stacked_networks: int):
+        super().__init__(
+            n_channels=n_channels, embedding_dim=embedding_dim, 
+            total_timeframes=total_timeframes, n_stacked_networks=n_stacked_networks
+        )
+        self.branch_nets = nn.ModuleList(
+            modules=[
+                StackedUNetranchNet(n_channels=n_channels, embedding_dim=embedding_dim)
+                for _ in range(n_stacked_networks)
+            ]
+        )
 
