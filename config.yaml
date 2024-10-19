@@ -41,7 +41,7 @@ inference:
   case_dir: 'data/test/case0025'
   sensor_timeframes: [340, 345, 350, 355, 360]
   reconstruction_timeframes: [346]
-  resolution: [280, 480]
+  resolution: [140, 240]
   sensor_position_path: 'tensors/train/sensor_positions/pos.pt'
   from_checkpoint: '.checkpoints/flronetfno14.pt'
 
