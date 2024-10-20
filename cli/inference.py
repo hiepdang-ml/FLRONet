@@ -23,9 +23,9 @@ def main(config: Dict[str, Any]) -> None:
     case_dir: str                               = str(config['inference']['case_dir'])
     sensor_timeframes: List[int]                = list(config['inference']['sensor_timeframes'])
     reconstruction_timeframes: List[int]        = list(config['inference']['reconstruction_timeframes'])
-    resolution: Tuple[int, int]                 = tuple(config['inference']['resolution'])
     sensor_position_path: str                   = str(config['inference']['sensor_position_path'])
     from_checkpoint: str                        = str(config['inference']['from_checkpoint'])
+    out_resolution: Tuple[int, int]             = tuple(config['inference']['out_resolution'])
 
     # Instatiate the embedding generator
     if embedding_generator == 'Mask':
@@ -49,7 +49,7 @@ def main(config: Dict[str, Any]) -> None:
         case_dir=case_dir,
         sensor_timeframes=sensor_timeframes,
         reconstruction_timeframes=reconstruction_timeframes,
-        resolution=resolution
+        out_resolution=out_resolution,
     )
 
 

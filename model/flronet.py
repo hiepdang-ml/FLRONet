@@ -82,32 +82,29 @@ class FNOLayer(nn.Module):
         self.n_modes: int = n_modes
         self.scale: float = 0.02
         self.weights_real = nn.Parameter(
-            self.scale * torch.randn(2, self.n_modes, self.n_modes, embedding_dim, embedding_dim, dtype=torch.float)
+            self.scale * torch.randn(2, embedding_dim, embedding_dim, self.n_modes, self.n_modes, dtype=torch.float)
         )
         self.weights_imag = nn.Parameter(
-            self.scale * torch.randn(2, self.n_modes, self.n_modes, embedding_dim, embedding_dim, dtype=torch.float)
+            self.scale * torch.randn(2, embedding_dim, embedding_dim, self.n_modes, self.n_modes, dtype=torch.float)
         )
-        self.W = nn.Linear(in_features=embedding_dim, out_features=embedding_dim)
+        self.W = nn.Conv2d(in_channels=embedding_dim, out_channels=embedding_dim, kernel_size=1)
 
-    @torch.autocast(device_type="cuda", enabled=False)
+    # @torch.autocast(device_type="cuda", enabled=False)
     def forward(self, input: torch.Tensor) -> torch.Tensor:
-        assert input.ndim == 5
-        batch_size, n_timesteps, H, W, embedding_dim = input.shape
+        assert input.ndim == 4
+        n_frames, embedding_dim, H, W = input.shape
         assert embedding_dim == self.embedding_dim
 
-        input = input.float()
-        fourier_coeff: torch.Tensor = torch.fft.rfft2(input=input, dim=(2, 3), norm="ortho")
-        h_modes = fourier_coeff.shape[2]
-        w_modes = fourier_coeff.shape[3]
-        assert (h_modes, w_modes) == (H, W // 2 + 1)
-        output_real: torch.Tensor = torch.zeros(fourier_coeff.shape, device=input.device)
-        output_imag: torch.Tensor = torch.zeros(fourier_coeff.shape, device=input.device)
-        pos_freq_slice: Tuple[slice, slice, slice, slice, slice] = (
-            slice(None), slice(None), slice(None, self.n_modes), slice(None, self.n_modes), slice(None)
-        )   # [:, :, :self.n_modes, :self.n_modes, :] 
-        neg_freq_slice: Tuple[slice, slice, slice, slice, slice] = (
-            slice(None), slice(None), slice(-self.n_modes, None), slice(None, self.n_modes), slice(None)
-        )   # [:, :, -self.n_modes:, :self.n_modes, :]
+        # input = input.float()
+        fourier_coeff: torch.Tensor = torch.fft.rfft2(input=input, dim=(2, 3), norm="ortho")    # (n_frames, embedding_dim, H, W // 2 + 1)
+        output_real: torch.Tensor = torch.zeros(fourier_coeff.shape).cuda()
+        output_imag: torch.Tensor = torch.zeros(fourier_coeff.shape).cuda()
+        pos_freq_slice: Tuple[slice, slice, slice, slice] = (
+            slice(None), slice(None), slice(None, self.n_modes), slice(None, self.n_modes)
+        )   # [:, :, :self.n_modes, :self.n_modes] 
+        neg_freq_slice: Tuple[slice, slice, slice, slice] = (
+            slice(None), slice(None), slice(-self.n_modes, None), slice(None, self.n_modes)
+        )   # [:, :, -self.n_modes:, :self.n_modes]
         output_real[pos_freq_slice], output_imag[pos_freq_slice] = self.complex_mul(
             fourier_coeff.real[pos_freq_slice], fourier_coeff.imag[pos_freq_slice],
             self.weights_real[0],
@@ -120,9 +117,9 @@ class FNOLayer(nn.Module):
         )
         output: torch.Tensor = torch.complex(real=output_real, imag=output_imag)
         output = torch.fft.irfft2(input=output, s=(H, W), dim=(2, 3), norm="ortho")
-        assert output.shape == (batch_size, n_timesteps, H, W, embedding_dim)
+        assert output.shape == (n_frames, embedding_dim, H, W)
         output = self.W(input) + output
-        output = torch.relu(output)
+        output = F.gelu(output)
         assert output.shape == input.shape
         return output
 
@@ -133,7 +130,7 @@ class FNOLayer(nn.Module):
         weights_real: torch.Tensor,
         weights_imag: torch.Tensor,
     ) -> Tuple[torch.Tensor, torch.Tensor]:
-        ops: str = 'btxyi,xyio->btxyo'
+        ops: str = 'nixy,ioxy->noxy'
         real_part: torch.Tensor = (
             torch.einsum(ops, input_real, weights_real) - torch.einsum(ops, input_imag, weights_imag)
         )
@@ -145,36 +142,47 @@ class FNOLayer(nn.Module):
 
 class StackedFNOBranchNet(nn.Module):
 
-    def __init__(self, n_channels: int, n_fno_layers: int, n_fno_modes: int, embedding_dim: int):
+    def __init__(self, n_channels: int, n_fno_layers: int, n_fno_modes: int, embedding_dim: int, out_resolution: Tuple[int, int]):
         super().__init__()
         self.n_channels: int = n_channels
         self.n_fno_layers: int = n_fno_layers
         self.n_fno_modes: int = n_fno_modes
         self.embedding_dim: int = embedding_dim
+        self.out_resolution: Tuple[int, int] = out_resolution
+        self.out_H, self.out_W = self.out_resolution
 
-        self.embedding_layer = nn.Linear(in_features=n_channels, out_features=embedding_dim)
+        self.updim = nn.Conv2d(in_channels=n_channels, out_channels=embedding_dim, kernel_size=1)
+        self.conv_smooth = nn.Sequential(
+            nn.Conv2d(in_channels=embedding_dim, out_channels=embedding_dim, kernel_size=3, padding=1),
+            nn.InstanceNorm2d(num_features=embedding_dim),
+            nn.GELU(),
+        )
         self.fno_block = nn.Sequential(*[FNOLayer(embedding_dim=embedding_dim, n_modes=n_fno_modes) for _ in range(n_fno_layers)])
-        self.mlp = nn.Linear(in_features=embedding_dim, out_features=n_channels)
+        self.downdim = nn.Conv2d(in_channels=embedding_dim, out_channels=n_channels, kernel_size=1)
 
     def forward(self, sensor_value: torch.Tensor) -> torch.Tensor:
-        batch_size, n_timeframes, n_channels, H, W = sensor_value.shape
+        batch_size, n_timeframes, n_channels, in_H, in_W = sensor_value.shape
         assert n_channels == self.n_channels
+        if self.training:
+            assert (in_H, in_W) == self.out_resolution, 'FNO must have the same out_resolution as input resolution during training'
 
-        output: torch.Tensor = sensor_value.permute(0, 1, 3, 4, 2)
-        output = self.embedding_layer(output)   # (batch_size, n_timeframes, H, W, self.embedding_dim)
-        output = self.fno_block(output)         # (batch_size, n_timeframes, H, W, self.embedding_dim)
-        output = self.mlp(output)               # (batch_size, n_timeframes, H, W, self.n_channels)
-        output: torch.Tensor = output.permute(0, 1, 4, 2, 3)
-        assert output.shape == sensor_value.shape
+        output: torch.Tensor = sensor_value.flatten(start_dim=0, end_dim=1)
+        output = self.updim(output) 
+        output = self.conv_smooth(F.interpolate(input=output, scale_factor=2, mode='nearest'))
+        output = F.interpolate(input=output, size=self.out_resolution, mode='nearest')
+        output = self.fno_block(output)
+        output = self.downdim(output)
+        output = output.reshape(batch_size, n_timeframes, n_channels, self.out_H, self.out_W)
         return output
     
 
 class StackedUNetranchNet(nn.Module):
 
-    def __init__(self, n_channels: int, embedding_dim: int):
+    def __init__(self, n_channels: int, embedding_dim: int, out_resolution: Tuple[int, int]):
         super().__init__()
         self.n_channels: int = n_channels
         self.embedding_dim: int = embedding_dim
+        self.out_resolution: Tuple[int, int] = out_resolution
 
         self.embedding_layer = nn.Linear(in_features=n_channels, out_features=embedding_dim)
         self.unet = UNet(n_channels=n_channels, embedding_dim=embedding_dim)
@@ -183,6 +191,7 @@ class StackedUNetranchNet(nn.Module):
     def forward(self, sensor_value: torch.Tensor) -> torch.Tensor:
         batch_size, n_timeframes, n_channels, H, W = sensor_value.shape
         assert n_channels == self.n_channels
+        assert (H, W) == self.out_resolution
         output: torch.Tensor = self.unet(sensor_value)
         assert output.shape == (batch_size, n_timeframes, n_channels, H, W)
         return output
@@ -214,12 +223,13 @@ class StackedTrunkNet(nn.Module):
 
 class _BaseFLRONet(nn.Module):
 
-    def __init__(self, n_channels: int, embedding_dim: int, total_timeframes: int, n_stacked_networks: int):
+    def __init__(self, n_channels: int, embedding_dim: int, total_timeframes: int, n_stacked_networks: int, out_resolution: Tuple[int, int]):
         super().__init__()
         self.n_channels: int = n_channels
         self.embedding_dim: int = embedding_dim
         self.total_timeframes: int = total_timeframes
         self.n_stacked_networks: int = n_stacked_networks
+        self.out_resolution: Tuple[int, int] = out_resolution
 
         self.trunk_nets = nn.ModuleList(
             modules=[
@@ -241,6 +251,8 @@ class _BaseFLRONet(nn.Module):
         n_fullstate_timeframes: int = fullstate_timeframes.shape[1]
         assert sensor_values.ndim == 5
         H, W = sensor_values.shape[-2:]
+        if isinstance(self, FLRONetWithUNet):
+            assert (H, W) == self.out_resolution, 'FLRONetWithUNet cannot do super resolution'
         assert sensor_values.shape == (batch_size, n_sensor_timeframes, self.n_channels, H, W)
         
         output: torch.Tensor = torch.zeros(
@@ -270,10 +282,12 @@ class FLRONetWithFNO(_BaseFLRONet):
         self,
         n_channels: int, n_fno_layers: int, n_fno_modes: int, 
         embedding_dim: int, total_timeframes: int, n_stacked_networks: int,
+        out_resolution: Tuple[int, int]
     ):
         super().__init__(
             n_channels=n_channels, embedding_dim=embedding_dim, 
-            total_timeframes=total_timeframes, n_stacked_networks=n_stacked_networks
+            total_timeframes=total_timeframes, n_stacked_networks=n_stacked_networks,
+            out_resolution=out_resolution
         )
         self.n_fno_layers: int = n_fno_layers
         self.n_fno_modes: int = n_fno_modes
@@ -282,6 +296,7 @@ class FLRONetWithFNO(_BaseFLRONet):
                 StackedFNOBranchNet(
                     n_channels=n_channels, n_fno_layers=n_fno_layers, 
                     n_fno_modes=n_fno_modes, embedding_dim=embedding_dim,
+                    out_resolution=out_resolution,
                 )
                 for _ in range(n_stacked_networks)
             ]
@@ -290,14 +305,15 @@ class FLRONetWithFNO(_BaseFLRONet):
 
 class FLRONetWithUNet(_BaseFLRONet):
 
-    def __init__(self, n_channels: int, embedding_dim: int, total_timeframes: int, n_stacked_networks: int):
+    def __init__(self, n_channels: int, embedding_dim: int, total_timeframes: int, n_stacked_networks: int, out_resolution: Tuple[int, int]):
         super().__init__(
             n_channels=n_channels, embedding_dim=embedding_dim, 
-            total_timeframes=total_timeframes, n_stacked_networks=n_stacked_networks
+            total_timeframes=total_timeframes, n_stacked_networks=n_stacked_networks,
+            out_resolution=out_resolution,
         )
         self.branch_nets = nn.ModuleList(
             modules=[
-                StackedUNetranchNet(n_channels=n_channels, embedding_dim=embedding_dim)
+                StackedUNetranchNet(n_channels=n_channels, embedding_dim=embedding_dim, out_resolution=out_resolution)
                 for _ in range(n_stacked_networks)
             ]
         )

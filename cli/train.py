@@ -98,12 +98,14 @@ def main(config: Dict[str, Any]) -> None:
                 n_fno_modes=n_fno_modes, embedding_dim=embedding_dim,
                 total_timeframes=train_dataset.total_timeframes_per_case,
                 n_stacked_networks=n_stacked_networks,
+                out_resolution=resolution,   # always train on dataset's resolution
             ).cuda()
         else:
             net = FLRONetWithUNet(
                 n_channels=n_channels, embedding_dim=embedding_dim,
                 total_timeframes=train_dataset.total_timeframes_per_case,
                 n_stacked_networks=n_stacked_networks,
+                out_resolution=resolution,   # always train on dataset's resolution
             ).cuda()
 
     # Load global trainer

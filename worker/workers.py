@@ -257,7 +257,7 @@ class Predictor(Worker, DatasetMixin):
 
     def __init__(
         self, 
-        net: FLRONetWithFNO, 
+        net: FLRONetWithFNO | FLRONetWithUNet, 
         sensor_position_path: str | None = None, 
         embedding_generator: Voronoi | Mask | None = None
     ):
@@ -265,46 +265,51 @@ class Predictor(Worker, DatasetMixin):
         self.sensor_position_path: str | None = sensor_position_path
         self.embedding_generator: Voronoi | Mask | None = embedding_generator
         if sensor_position_path is not None:
-            self.sensor_positions: torch.Tensor = torch.load(sensor_position_path, weights_only=True).cuda().int()
+            self.original_sensor_positions: torch.Tensor = torch.load(sensor_position_path, weights_only=True).int().cuda()
     
         self.loss_function: nn.Module = nn.MSELoss(reduction='sum')
         self.metric = nn.MSELoss(reduction='sum')
+        self.trained_resolution: Tuple[int, int] = net.out_resolution
 
     def predict_from_scratch(
         self, 
         case_dir: str, 
         sensor_timeframes: List[int],
         reconstruction_timeframes: List[int],
-        resolution: Tuple[int, int],
+        out_resolution: Tuple[int, int],
     ):
         assert isinstance(self.sensor_position_path, str)
         assert isinstance(self.embedding_generator, (Voronoi, Mask))
         assert min(sensor_timeframes) <= min(reconstruction_timeframes)
         assert max(reconstruction_timeframes) <= max(sensor_timeframes)
-
         n_sensor_timeframes: int = len(sensor_timeframes)
         n_fullstate_timeframes: int = len(reconstruction_timeframes)
-        H, W = resolution
+        
+        out_H, out_W = out_resolution
+        if isinstance(self.net, FLRONetWithUNet):
+            assert out_resolution == self.net.out_resolution, 'FLRONetWithUNet cannot do super resolution'
+        else:
+            # set out_resolution for FNO (super-resolution)
+            self.net.out_resolution = out_resolution
 
-        self.net.eval()
-        # load raw data
-        data: torch.Tensor = self.load2tensor(case_dir).cuda()
         # prepare reconstruction timeframes
-        reconstruction_timeframes: torch.Tensor = torch.tensor(reconstruction_timeframes, dtype=torch.long).cuda()
+        reconstruction_timeframes: torch.Tensor = torch.tensor(reconstruction_timeframes, dtype=torch.int).cuda()
         reconstruction_timeframes = reconstruction_timeframes.unsqueeze(dim=0)
         # prepare sensor timeframes
-        sensor_timeframes: torch.Tensor = torch.tensor(sensor_timeframes, dtype=torch.long).cuda()
+        sensor_timeframes: torch.Tensor = torch.tensor(sensor_timeframes, dtype=torch.int).cuda()
         sensor_timeframes = sensor_timeframes.unsqueeze(dim=0)
-        # prepare sensor values
+        # load raw data
+        data: torch.Tensor = self.load2tensor(case_dir).cuda()
+        # resize (original resolution is 64 x 64, which is not proportional to 0.14m x 0.24m)
         sensor_frames: torch.Tensor = data[sensor_timeframes]
-        # resize sensor frames (original resolution is 64 x 64, which is not proportional to 0.14m x 0.24m)
         sensor_frames = F.interpolate(
-            input=sensor_frames.flatten(0, 1), size=(H, W), mode='bicubic'
+            input=sensor_frames.flatten(0, 1), size=self.trained_resolution, mode='bicubic',
         )
-        sensor_frames = sensor_frames.reshape(1, n_sensor_timeframes, 2, H, W)
-        # compute sensor data for entire space
-        sensor_frames = self.embedding_generator(data=sensor_frames, sensor_positions=self.sensor_positions)
-        assert sensor_frames.shape == (1, n_sensor_timeframes, 2, H, W)
+        sensor_frames = sensor_frames.unsqueeze(0)
+        # prepare sensor frames
+        sensor_frames = self.embedding_generator(data=sensor_frames, sensor_positions=self.original_sensor_positions)
+
+        self.net.eval()
         with torch.no_grad():
             # reconstruct
             with autocast(device_type="cuda", dtype=torch.float16):
@@ -316,7 +321,7 @@ class Predictor(Worker, DatasetMixin):
                 )
 
         assert reconstruction_frames.shape == (
-            1, n_fullstate_timeframes, self.net.n_channels, H, W
+            1, n_fullstate_timeframes, self.net.n_channels, out_H, out_W
         )
         # visualization
         reconstruction_frames = reconstruction_frames.squeeze(dim=0)
@@ -326,7 +331,7 @@ class Predictor(Worker, DatasetMixin):
             reconstruction_frame: torch.Tensor = reconstruction_frames[frame_idx]
             at_timeframe = int(reconstruction_timeframes[frame_idx].item())
             plot_frame(
-                sensor_positions=self.sensor_positions,
+                sensor_positions=self.original_sensor_positions,
                 reconstruction_frame=reconstruction_frame,
                 reduction=lambda x: compute_velocity_field(x, dim=0),
                 title=f'{case_name.upper()} t={at_timeframe * 0.001:.3f}s',
