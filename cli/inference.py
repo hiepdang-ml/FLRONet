@@ -25,6 +25,7 @@ def main(config: Dict[str, Any]) -> None:
     reconstruction_timeframes: List[int]        = list(config['inference']['reconstruction_timeframes'])
     sensor_position_path: str                   = str(config['inference']['sensor_position_path'])
     from_checkpoint: str                        = str(config['inference']['from_checkpoint'])
+    trained_resolution: Tuple[int, int]         = tuple(config['dataset']['resolution'])
     out_resolution: Tuple[int, int]             = tuple(config['inference']['out_resolution'])
 
     # Instatiate the embedding generator
@@ -45,13 +46,21 @@ def main(config: Dict[str, Any]) -> None:
         sensor_position_path=sensor_position_path,
         embedding_generator=embedding_generator
     )
-    predictor.predict_from_scratch(
-        case_dir=case_dir,
-        sensor_timeframes=sensor_timeframes,
-        reconstruction_timeframes=reconstruction_timeframes,
-        out_resolution=out_resolution,
-    )
-
+    if isinstance(net, FLRONetWithUNet):
+        predictor.predict_from_scratch(
+            case_dir=case_dir,
+            sensor_timeframes=sensor_timeframes,
+            reconstruction_timeframes=reconstruction_timeframes,
+            in_resolution=trained_resolution,
+        )        
+    else:
+        predictor.predict_from_scratch(
+            case_dir=case_dir,
+            sensor_timeframes=sensor_timeframes,
+            reconstruction_timeframes=reconstruction_timeframes,
+            in_resolution=trained_resolution,
+            out_resolution=out_resolution,
+        )
 
 if __name__ == "__main__":
     # Initialize the argument parser
