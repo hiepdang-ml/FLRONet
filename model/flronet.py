@@ -1,5 +1,6 @@
 from typing import List, Tuple
 import math
+from functools import cache
 
 import torch
 import torch.nn as nn
@@ -92,21 +93,27 @@ class FNOLayer(nn.Module):
             nn.GELU(),
             nn.Conv2d(in_channels=embedding_dim * 4, out_channels=embedding_dim, kernel_size=1),
         )
-        self.norm = nn.InstanceNorm2d(num_features=embedding_dim)
 
     def forward(self, input: torch.Tensor, out_resolution: Tuple[int, int]) -> torch.Tensor:
         assert input.ndim == 4
         n_frames, embedding_dim, in_H, in_W = input.shape
         assert embedding_dim == self.embedding_dim
         out_H, out_W = out_resolution
-        
-        with torch.autocast(device_type="cuda", enabled=False):
-            input = input.float()
-            fourier_coeff: torch.Tensor = torch.fft.rfft2(input=self.norm(input), dim=(2, 3), norm="ortho")
-            assert fourier_coeff.shape == (n_frames, embedding_dim, in_H, in_W // 2 + 1)
-    
-        output_real: torch.Tensor = torch.zeros(n_frames, embedding_dim, out_H, out_W).cuda()
-        output_imag: torch.Tensor = torch.zeros(n_frames, embedding_dim, out_H, out_W).cuda()
+
+        # Find the next powers of 2 for height and width
+        padded_H: int = self.next_power_of_2(in_H)
+        padded_W: int = self.next_power_of_2(in_W)
+        # Pad the input to make the height and width powers of 2
+        if (padded_H, padded_W) != (in_H, in_W):
+            padded_input: torch.Tensor = F.pad(input=input, pad=(0, padded_W - in_W, 0, padded_H - in_H), mode='constant', value=0)
+        else:
+            padded_input: torch.Tensor = input
+        # FFT
+        fourier_coeff: torch.Tensor = torch.fft.rfft2(padded_input, dim=(2, 3), norm="ortho")
+        # Initialize output tensors (real and imaginary) for the padded size
+        output_real = torch.zeros((n_frames, embedding_dim, in_H, in_W), device=input.device)
+        output_imag = torch.zeros((n_frames, embedding_dim, in_H, in_W), device=input.device)
+
         pos_freq_slice: Tuple[slice, slice, slice, slice] = (
             slice(None), slice(None), slice(None, self.n_modes), slice(None, self.n_modes)
         )   # [:, :, :self.n_modes, :self.n_modes] 
@@ -114,28 +121,37 @@ class FNOLayer(nn.Module):
             slice(None), slice(None), slice(-self.n_modes, None), slice(None, self.n_modes)
         )   # [:, :, -self.n_modes:, :self.n_modes]
         output_real[pos_freq_slice], output_imag[pos_freq_slice] = self.complex_mul(
-            fourier_coeff.real[pos_freq_slice], fourier_coeff.imag[pos_freq_slice],
-            self.weights_real[0],
-            self.weights_imag[0],
+            input_real=fourier_coeff.real[pos_freq_slice], 
+            input_imag=fourier_coeff.imag[pos_freq_slice],
+            weights_real=self.weights_real[0],
+            weights_imag=self.weights_imag[0],
         )
         output_real[neg_freq_slice], output_imag[neg_freq_slice] = self.complex_mul(
-            fourier_coeff.real[neg_freq_slice], fourier_coeff.imag[neg_freq_slice],
-            self.weights_real[1],
-            self.weights_imag[1],
+            input_real=fourier_coeff.real[neg_freq_slice], 
+            input_imag=fourier_coeff.imag[neg_freq_slice],
+            weights_real=self.weights_real[1],
+            weights_imag=self.weights_imag[1],
         )
+        # Upsampling in frequency domain
+        if (out_H, out_W) != (in_H, in_W):
+            fourier_coeff = self.pad_fourier(fourier_coeff=fourier_coeff, out_resolution=(out_H, out_W))
+            # fourier_coeff = self.interpolate_fourier(fourier_coeff=fourier_coeff, out_resolution=(out_H, out_W))
+
+        # IFFT
         output: torch.Tensor = torch.complex(real=output_real, imag=output_imag)
         output = torch.fft.irfft2(input=output, s=out_resolution, dim=(2, 3), norm="ortho")
-        output = self.mlp(output)
         assert output.shape == (n_frames, embedding_dim, out_H, out_W)
+        # Residual Connection
         if (out_H, out_W) == (in_H, in_W):
-            output = input + output
+            output = self.mlp(input) + output
         else:
-            output = F.interpolate(input, size=(out_H, out_W), mode='bicubic') + output
-
+            output = self.mlp(F.interpolate(input, size=(out_H, out_W), mode='bicubic', align_corners=False)) + output
+        # Non-linearity
+        output = F.gelu(output)
         return output
 
+    @staticmethod
     def complex_mul(
-        self,
         input_real: torch.Tensor,
         input_imag: torch.Tensor,
         weights_real: torch.Tensor,
@@ -150,6 +166,34 @@ class FNOLayer(nn.Module):
         )
         return real_part, imag_part
 
+    @staticmethod
+    def next_power_of_2(x: int) -> int:
+        return 1 if x == 0 else 2 ** (x - 1).bit_length()
+
+    def interpolate_fourier(self, fourier_coeff: torch.Tensor, out_resolution: Tuple[int, int]) -> torch.Tensor:
+        batchsize, embedding_dim, in_H, in_W = fourier_coeff.shape
+        out_H, out_W = out_resolution
+        out_W_reduced = out_W // 2 + 1
+        fourier_coeff_interpolated_real = F.interpolate(
+            input=fourier_coeff.real, size=(out_H, out_W_reduced), mode='nearest'
+        )
+        fourier_coeff_interpolated_imag = F.interpolate(
+            input=fourier_coeff.imag, size=(out_H, out_W_reduced), mode='nearest'
+        )
+        fourier_coeff_interpolated = torch.complex(fourier_coeff_interpolated_real, fourier_coeff_interpolated_imag)
+        assert fourier_coeff_interpolated.shape == (batchsize, embedding_dim, out_H, out_W_reduced)
+        return fourier_coeff_interpolated
+
+    def pad_fourier(self, fourier_coeff: torch.Tensor, out_resolution: Tuple[int, int]) -> torch.Tensor:
+        batchsize, embedding_dim, in_H, in_W = fourier_coeff.shape
+        out_H, out_W = out_resolution
+        padded_coeff = torch.zeros(
+            (batchsize, embedding_dim, out_H, out_W // 2 + 1), device=fourier_coeff.device, dtype=fourier_coeff.dtype
+        )
+        padded_coeff[:, :, :in_H // 2, :in_W // 2] = fourier_coeff[:, :, :in_H // 2, :in_W // 2]
+        padded_coeff[:, :, -in_H // 2:, :in_W // 2] = fourier_coeff[:, :, -in_H // 2:, :in_W // 2]
+        return padded_coeff
+
 
 class StackedFNOBranchNet(nn.Module):
 
@@ -160,7 +204,7 @@ class StackedFNOBranchNet(nn.Module):
         self.n_fno_modes: int = n_fno_modes
         self.embedding_dim: int = embedding_dim
 
-        self.updim = nn.Conv2d(in_channels=n_channels, out_channels=embedding_dim, kernel_size=1)
+        self.updim = nn.Conv2d(in_channels=n_channels + 2, out_channels=embedding_dim, kernel_size=1)
         self.fno_layers = nn.ModuleList(
             modules=[FNOLayer(embedding_dim=embedding_dim, n_modes=n_fno_modes) for _ in range(n_fno_layers)]
         )
@@ -170,15 +214,30 @@ class StackedFNOBranchNet(nn.Module):
         batch_size, n_timeframes, n_channels, in_H, in_W = sensor_value.shape
         assert n_channels == self.n_channels
         output: torch.Tensor = sensor_value.flatten(start_dim=0, end_dim=1)
+        n_frames: int = output.shape[0]
+        # positional encoding
+        meshgrid: torch.Tensor = self.get_meshgrid(shape=(in_H, in_W)).reshape(1, 2, in_H, in_W).repeat(n_frames, 1, 1, 1)
+        output = torch.cat(tensors=[output, meshgrid], dim=1)
+        # up dim
         output = self.updim(output)
+        # fno
         for fno_layer in self.fno_layers:
             output = fno_layer(output, out_resolution=out_resolution)
-
+        # down dim
         output = self.downdim(output)
         out_H, out_W = out_resolution
         output = output.reshape(batch_size, n_timeframes, n_channels, out_H, out_W)
         return output
     
+    @cache
+    def get_meshgrid(self, shape: Tuple[int, int]) -> torch.Tensor:
+        H, W = shape
+        h_grid: torch.Tensor = torch.linspace(start=0, end=1, steps=H).reshape(H, 1).repeat(1, W)   # (H, W)
+        w_grid: torch.Tensor = torch.linspace(start=0, end=1, steps=W).reshape(1, W).repeat(H, 1)   # (H, W)
+        grid = torch.stack(tensors=[h_grid, w_grid], dim=0).float()
+        assert grid.shape == (2, H, W)
+        return grid.cuda()
+
 
 class StackedUNetranchNet(nn.Module):
 

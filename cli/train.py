@@ -40,8 +40,6 @@ def main(config: Dict[str, Any]) -> None:
     train_batch_size: int                       = int(config['training']['train_batch_size'])
     val_batch_size: int                         = int(config['training']['val_batch_size'])
     learning_rate: float                        = float(config['training']['learning_rate'])
-    a: float                                    = float(config['training']['a'])
-    r: float                                    = float(config['training']['r'])
     n_epochs: int                               = int(config['training']['n_epochs'])
     patience: int                               = int(config['training']['patience'])
     tolerance: int                              = float(config['training']['tolerance'])
@@ -109,7 +107,6 @@ def main(config: Dict[str, Any]) -> None:
     trainer = Trainer(
         net=net, 
         lr=learning_rate,
-        a=a, r=r,
         train_dataset=train_dataset,
         val_dataset=val_dataset,
         train_batch_size=train_batch_size,

@@ -12,19 +12,17 @@ dataset:
 architecture:
   branch_net: 'FNO'  # FNO | UNet
   n_channels: 2   # fixed for 2d problems
-  embedding_dim: 16
-  n_stacked_networks: 1
-  from_checkpoint: '.checkpoints/flronetfno1.pt'   # set to null to train from scratch
+  embedding_dim: 32
+  n_stacked_networks: 2
+  from_checkpoint: '.checkpoints/flronetfno3.pt'  # set to null to train from scratch
   # FNO-specific configs:
-  n_fno_layers: 1
-  n_fno_modes: 16
+  n_fno_layers: 4
+  n_fno_modes: 64
 
 training:
   train_batch_size: 4
   val_batch_size: 2
   learning_rate: 1e-3
-  a: 50.
-  r: 0.01
   n_epochs: 100
   patience: 5
   tolerance: 0.
@@ -34,11 +32,14 @@ evaluate:
   from_checkpoint: '.checkpoints/flronetfno14.pt'
 
 inference:
-  case_dir: 'data/test/case0025'
+  case_dir: 'data/test/case0016'
   sensor_timeframes: [340, 345, 350, 355, 360]
-  reconstruction_timeframes: [346]
+  reconstruction_timeframes: [345]
   sensor_position_path: 'tensors/train/sensor_positions/pos.pt'
-  from_checkpoint: '.checkpoints/flronetfno1.pt'
+  from_checkpoint: '.checkpoints/flronetfno3.pt'
   # FNO-specific configs:
+  # out_resolution: [140, 240]
+  # out_resolution: [210, 360]
   out_resolution: [280, 480]
+  # out_resolution: [560, 960]
 

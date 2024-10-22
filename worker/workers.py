@@ -15,7 +15,6 @@ from common.training import Accumulator, EarlyStopping, Timer, Logger, Checkpoin
 from cfd.dataset import CFDDataset, DatasetMixin
 from cfd.embedding import Voronoi, Mask
 from model import FLRONetWithFNO, FLRONetWithUNet
-from model.losses import CustomMSE
 from common.plotting import plot_frame
 from common.functional import compute_velocity_field
 
@@ -53,16 +52,12 @@ class Trainer(Worker):
         self, 
         net: FLRONetWithFNO,
         lr: float,
-        a: float,
-        r: float,
         train_dataset: CFDDataset,
         val_dataset: CFDDataset,
         train_batch_size: int,
         val_batch_size: int,
     ):
         self.lr: float = lr
-        self.a: float = a
-        self.r: float = r
         self.train_dataset: CFDDataset = train_dataset
         self.val_dataset: CFDDataset = val_dataset
         self.train_batch_size: int = train_batch_size
@@ -84,13 +79,7 @@ class Trainer(Worker):
             prefetch_factor=3,
             pin_memory=True,
         )
-        self.loss_function: nn.Module = CustomMSE(
-            resolution=train_dataset.resolution,
-            sensor_positions=train_dataset.sensor_positions.cuda(),
-            a=a, r=r,
-            reduction='sum',
-        )
-        self.metric = nn.MSELoss(reduction='sum')
+        self.loss_function: nn.Module = nn.MSELoss(reduction='sum')
 
         self.grad_scaler = GradScaler(device="cuda")
         if torch.cuda.device_count() > 1:
@@ -154,35 +143,23 @@ class Trainer(Worker):
                             out_resolution=self.train_dataset.resolution,
                         )
                     # Compute loss
-                    total_loss: torch.Tensor = self.loss_function(
-                        reconstructed_frames=reconstruction_frames, fullstate_frames=fullstate_frames
-                    )
-                    mean_loss: torch.Tensor = total_loss / reconstruction_frames.numel()
-                    # Compute metrics
-                    with torch.no_grad():
-                        total_mse: torch.Tensor = self.metric(
-                            input=reconstruction_frames, target=fullstate_frames,
-                        )
+                    total_mse: torch.Tensor = self.loss_function(input=reconstruction_frames, target=fullstate_frames)
+                    mean_mse: torch.Tensor = total_mse / reconstruction_frames.numel()
 
                 # Backpropagation
-                self.grad_scaler.scale(mean_loss).backward()
+                self.grad_scaler.scale(mean_mse).backward()
                 self.grad_scaler.step(self.optimizer)
                 self.grad_scaler.update()
 
                 # Accumulate the metrics
-                train_metrics.add(
-                    total_loss=total_loss.item(), 
-                    total_mse=total_mse.item(),
-                    n_elems=reconstruction_frames.numel(),
-                )
+                train_metrics.add(total_mse=total_mse.item(), n_elems=reconstruction_frames.numel())
                 timer.end_batch(epoch=epoch)
                 # Log
-                train_mean_loss: float = train_metrics['total_loss'] / train_metrics['n_elems']
                 train_mean_mse: float = train_metrics['total_mse'] / train_metrics['n_elems']
                 logger.log(
                     epoch=epoch, n_epochs=n_epochs, 
                     batch=batch, n_batches=len(self.train_dataloader), took=timer.time_batch(epoch, batch), 
-                    mean_train_rmse=train_mean_mse ** 0.5, mean_train_mse=train_mean_mse, mean_train_loss=train_mean_loss
+                    mean_train_rmse=train_mean_mse ** 0.5, mean_train_mse=train_mean_mse,
                 )
 
             # Ragularly save checkpoint
@@ -198,14 +175,13 @@ class Trainer(Worker):
             # Reset metric records for next epoch
             train_metrics.reset()
             # Evaluate
-            mean_val_mse: float; mean_val_rmse: float; mean_val_loss: float
-            mean_val_mse, mean_val_loss = self.evaluate()
-            mean_val_rmse = mean_val_mse ** 0.5
+            mean_val_mse: float = self.evaluate()
+            mean_val_rmse: float = mean_val_mse ** 0.5
             timer.end_epoch(epoch)
             # Log
             logger.log(
                 epoch=epoch, n_epochs=n_epochs, took=timer.time_epoch(epoch), 
-                mean_val_rmse=mean_val_rmse, mean_val_mse=mean_val_mse, mean_val_loss=mean_val_loss, 
+                mean_val_rmse=mean_val_rmse, mean_val_mse=mean_val_mse,
             )
             print('=' * 20)
 
@@ -251,25 +227,14 @@ class Trainer(Worker):
                             out_resolution=self.train_dataset.resolution,
                         )
                     # Compute total loss
-                    total_loss: torch.Tensor = self.loss_function(
-                        reconstructed_frames=reconstruction_frames, fullstate_frames=fullstate_frames,
-                    )
-                    # Compute metrics
-                    total_mse: torch.Tensor = self.metric(
-                        input=reconstruction_frames, target=fullstate_frames,
-                    )
+                    total_mse: torch.Tensor = self.loss_function(input=reconstruction_frames, target=fullstate_frames)
 
                 # Accumulate the val_metrics
-                val_metrics.add(
-                    total_loss=total_loss.item(), 
-                    total_mse=total_mse.item(), 
-                    n_elems=reconstruction_frames.numel(), 
-                )
+                val_metrics.add(total_mse=total_mse.item(), n_elems=reconstruction_frames.numel())
 
         # Compute the aggregate metrics
         mean_mse: float = val_metrics['total_mse'] / val_metrics['n_elems']
-        mean_loss: float = val_metrics['total_loss'] / val_metrics['n_elems']
-        return mean_mse, mean_loss
+        return mean_mse
 
 
 class Predictor(Worker, DatasetMixin):
@@ -286,7 +251,6 @@ class Predictor(Worker, DatasetMixin):
         if sensor_position_path is not None:
             self.original_sensor_positions: torch.Tensor = torch.load(sensor_position_path, weights_only=True).int().cuda()
     
-        self.loss_function: nn.Module = nn.MSELoss(reduction='sum')
         self.metric = nn.MSELoss(reduction='sum')
 
     def predict_from_scratch(
