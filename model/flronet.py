@@ -78,16 +78,17 @@ class UNet(nn.Module):
 
 class SpectralConv2d(nn.Module):
 
-    def __init__(self, embedding_dim: int, n_modes: int):
+    def __init__(self, embedding_dim: int, n_hmodes: int, n_wmodes: int):
         super().__init__()
         self.embedding_dim: int = embedding_dim
-        self.n_modes: int = n_modes
+        self.n_hmodes: int = n_hmodes
+        self.n_wmodes: int = n_wmodes
         self.scale: float = 0.02
         self.weights_real = nn.Parameter(
-            self.scale * torch.randn(2, embedding_dim, embedding_dim, self.n_modes, self.n_modes, dtype=torch.float)
+            self.scale * torch.randn(2, embedding_dim, embedding_dim, n_hmodes, n_wmodes, dtype=torch.float)
         )
         self.weights_imag = nn.Parameter(
-            self.scale * torch.randn(2, embedding_dim, embedding_dim, self.n_modes, self.n_modes, dtype=torch.float)
+            self.scale * torch.randn(2, embedding_dim, embedding_dim, n_hmodes, n_wmodes, dtype=torch.float)
         )
 
     @autocast(device_type="cuda", enabled=False)
@@ -112,11 +113,11 @@ class SpectralConv2d(nn.Module):
         output_imag = torch.zeros((n_frames, embedding_dim, H, W), device=input.device)
 
         pos_freq_slice: Tuple[slice, slice, slice, slice] = (
-            slice(None), slice(None), slice(None, self.n_modes), slice(None, self.n_modes)
-        )   # [:, :, :self.n_modes, :self.n_modes] 
+            slice(None), slice(None), slice(None, self.n_hmodes), slice(None, self.n_wmodes)
+        )   # [:, :, :self.n_hmodes, :self.n_wmodes] 
         neg_freq_slice: Tuple[slice, slice, slice, slice] = (
-            slice(None), slice(None), slice(-self.n_modes, None), slice(None, self.n_modes)
-        )   # [:, :, -self.n_modes:, :self.n_modes]
+            slice(None), slice(None), slice(-self.n_hmodes, None), slice(None, self.n_wmodes)
+        )   # [:, :, -self.n_hmodes:, :self.n_wmodes]
         output_real[pos_freq_slice], output_imag[pos_freq_slice] = self.complex_mul(
             input_real=fourier_coeff.real[pos_freq_slice], 
             input_imag=fourier_coeff.imag[pos_freq_slice],
@@ -158,11 +159,12 @@ class SpectralConv2d(nn.Module):
 
 class StackedFNOBranchNet(nn.Module):
 
-    def __init__(self, n_channels: int, n_fno_layers: int, n_fno_modes: int, embedding_dim: int):
+    def __init__(self, n_channels: int, n_fno_layers: int, n_hmodes: int, n_wmodes: int, embedding_dim: int):
         super().__init__()
         self.n_channels: int = n_channels
         self.n_fno_layers: int = n_fno_layers
-        self.n_fno_modes: int = n_fno_modes
+        self.n_hmodes: int = n_hmodes
+        self.n_wmodes: int = n_wmodes
         self.embedding_dim: int = embedding_dim
 
         self.embedding_layer = nn.Sequential(
@@ -173,7 +175,7 @@ class StackedFNOBranchNet(nn.Module):
             nn.Linear(in_features=256, out_features=embedding_dim),
         )
         self.spectral_conv_layers = nn.ModuleList(
-            modules=[SpectralConv2d(embedding_dim=embedding_dim, n_modes=n_fno_modes) for _ in range(n_fno_layers)]
+            modules=[SpectralConv2d(embedding_dim=embedding_dim, n_hmodes=n_hmodes, n_wmodes=n_wmodes) for _ in range(n_fno_layers)]
         )
         self.Ws = nn.ModuleList(
             modules=[
@@ -260,13 +262,14 @@ class FLRONetWithFNO(nn.Module):
 
     def __init__(
         self,
-        n_channels: int, n_fno_layers: int, n_fno_modes: int, 
+        n_channels: int, n_fno_layers: int, n_hmodes: int, n_wmodes: int, 
         embedding_dim: int, total_timeframes: int, n_stacked_networks: int,
     ):
         super().__init__()
         self.n_channels: int = n_channels
         self.n_fno_layers: int = n_fno_layers
-        self.n_fno_modes: int = n_fno_modes
+        self.n_hmodes: int = n_hmodes
+        self.n_wmodes: int = n_wmodes
         self.embedding_dim: int = embedding_dim
         self.total_timeframes: int = total_timeframes
         self.n_stacked_networks: int = n_stacked_networks
@@ -274,7 +277,7 @@ class FLRONetWithFNO(nn.Module):
         self.branch_nets = nn.ModuleList(
             modules=[
                 StackedFNOBranchNet(
-                    n_channels=n_channels, n_fno_layers=n_fno_layers, n_fno_modes=n_fno_modes, embedding_dim=embedding_dim,
+                    n_channels=n_channels, n_fno_layers=n_fno_layers, n_hmodes=n_hmodes, n_wmodes=n_wmodes, embedding_dim=embedding_dim,
                 )
                 for _ in range(n_stacked_networks)
             ]

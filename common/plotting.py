@@ -2,6 +2,7 @@ import os
 from typing import Callable
 
 import datetime as dt
+import matplotlib
 import matplotlib.pyplot as plt
 import matplotlib.patches as patches
 
@@ -67,13 +68,19 @@ def plot_frame(
         max_value: float = fullstate_frame.max().item()
     else:
         max_value: float = max([frame.max().item() for frame in frames_to_plot])
+
+    # matplotlib.colors.Normalize(vmin=0, vmax=max_value)
+    norm = matplotlib.colors.Normalize(vmin=0, vmax=2.5)
     for frame, ax, chart_title in zip(frames_to_plot, axs, chart_titles):
-        ax.imshow(
+        im = ax.imshow(
             frame.squeeze(dim=0),
             origin="lower",
-            vmin=0, vmax=max_value,
+            norm=norm,
             cmap='jet',
         )
+        cbar = ax.figure.colorbar(im, ax=ax, orientation='vertical', fraction=0.046, pad=0.04)
+        cbar.ax.tick_params(labelsize=10)
+
         if sensor_positions is not None:
             for sensor_x, sensor_y in sensor_positions:
                 ax.add_patch(

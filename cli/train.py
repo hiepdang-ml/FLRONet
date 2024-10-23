@@ -35,7 +35,8 @@ def main(config: Dict[str, Any]) -> None:
     embedding_dim: int                          = int(config['architecture']['embedding_dim'])
     n_stacked_networks: int                     = int(config['architecture']['n_stacked_networks'])
     n_fno_layers: int                           = int(config['architecture']['n_fno_layers'])
-    n_fno_modes: int                            = int(config['architecture']['n_fno_modes'])
+    n_hmodes: int                               = int(config['architecture']['n_hmodes'])
+    n_wmodes: int                               = int(config['architecture']['n_wmodes'])
     from_checkpoint: Optional[str]              = config['architecture']['from_checkpoint']
     train_batch_size: int                       = int(config['training']['train_batch_size'])
     val_batch_size: int                         = int(config['training']['val_batch_size'])
@@ -93,7 +94,7 @@ def main(config: Dict[str, Any]) -> None:
         if branch_net.lower() == 'fno':
             net = FLRONetWithFNO(
                 n_channels=n_channels, n_fno_layers=n_fno_layers, 
-                n_fno_modes=n_fno_modes, embedding_dim=embedding_dim,
+                n_hmodes=n_hmodes, n_wmodes=n_wmodes, embedding_dim=embedding_dim,
                 total_timeframes=train_dataset.total_timeframes_per_case,
                 n_stacked_networks=n_stacked_networks,
             ).cuda()

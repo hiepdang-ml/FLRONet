@@ -3,21 +3,22 @@ dataset:
   n_fullstate_timeframes_per_chunk: 1
   n_samplings_per_chunk: 1
   resolution: [140, 240]
-  n_sensors: 64
+  n_sensors: 32
   sensor_generator: 'LHS'  # AroundCylinder | LHS
   embedding_generator: 'Voronoi'  # Voronoi | Mask
   seed: 1
-  already_preloaded: true
+  already_preloaded: false
 
 architecture:
   branch_net: 'FNO'  # FNO | UNet
   n_channels: 2   # fixed for 2d problems
   embedding_dim: 32
-  n_stacked_networks: 2
+  n_stacked_networks: 1
   from_checkpoint: null  # set to null to train from scratch
   # FNO-specific configs:
   n_fno_layers: 4
-  n_fno_modes: 64
+  n_hmodes: 32
+  n_wmodes: 64
 
 training:
   train_batch_size: 4
@@ -29,17 +30,16 @@ training:
   save_frequency: 1
 
 evaluate:
-  from_checkpoint: '.checkpoints/flronetfno8.pt'
+  from_checkpoint: '.checkpoints/flronetfno10.pt'
 
 inference:
-  case_dir: 'data/test/case0034'
-  sensor_timeframes: [640, 645, 650, 655, 660]
-  reconstruction_timeframes: [642]
+  case_dir: 'data/test/case0015'
+  sensor_timeframes: [620, 625, 630, 635, 640]
+  reconstruction_timeframes: [632]
   sensor_position_path: 'tensors/train/sensor_positions/pos.pt'
   from_checkpoint: '.checkpoints/flronetfno10.pt'
   # FNO-specific configs:
   # out_resolution: [140, 240]
-  # out_resolution: [210, 360]
   # out_resolution: [280, 480]
   out_resolution: [560, 960]
   # out_resolution: [1120, 1920]
