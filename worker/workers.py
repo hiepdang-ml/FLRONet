@@ -365,6 +365,7 @@ class Predictor(Worker, DatasetMixin):
                         sensor_timeframes=sensor_timeframes,
                         sensor_values=sensor_frames,
                         fullstate_timeframes=fullstate_timeframes,
+                        out_resolution=dataset.resolution,
                     )
 
                 # Visualization
