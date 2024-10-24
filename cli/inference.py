@@ -30,46 +30,30 @@ def main(config: Dict[str, Any]) -> None:
     trained_resolution: Tuple[int, int]         = tuple(config['dataset']['resolution'])
     out_resolution: Tuple[int, int]             = tuple(config['inference']['out_resolution'])
 
-    # Instatiate the embedding generator
-    sensor_positions: torch.Tensor = torch.load(sensor_position_path, weights_only=True, map_location='cuda')
-    if n_dropout_sensors == 0:
-        implied_dropout_probabilities: List[float] = []
-    else:
-        implied_dropout_probabilities: List[float] = [0.] * n_dropout_sensors
-        implied_dropout_probabilities[-1] = 1.
-    if embedding_generator == 'Mask':
-        embedding_generator = Mask(
-            resolution=trained_resolution, sensor_positions=sensor_positions, dropout_probabilities=implied_dropout_probabilities
-        )
-    elif embedding_generator == 'Voronoi':
-        embedding_generator = Voronoi(
-            resolution=trained_resolution, sensor_positions=sensor_positions, dropout_probabilities=implied_dropout_probabilities
-        )
-    else:
-        raise ValueError(f'Invalid embedding_generator: {embedding_generator}')
-
     # Load the model
     checkpoint_loader = CheckpointLoader(checkpoint_path=from_checkpoint)
     net: FLRONetWithFNO | FLRONetWithUNet = checkpoint_loader.load(scope=globals())[0]
     
     # Make prediction
-    predictor = Predictor(
-        net=net,
-        sensor_position_path=sensor_position_path,
-        embedding_generator=embedding_generator
-    )
+    predictor = Predictor(net=net)
     if isinstance(net, FLRONetWithUNet):
         predictor.predict_from_scratch(
             case_dir=case_dir,
             sensor_timeframes=sensor_timeframes,
             reconstruction_timeframes=reconstruction_timeframes,
+            sensor_position_path=sensor_position_path,
+            embedding_generator=embedding_generator,
+            n_dropout_sensors=n_dropout_sensors,
             in_resolution=trained_resolution,
-        )        
+        )
     else:
         predictor.predict_from_scratch(
             case_dir=case_dir,
             sensor_timeframes=sensor_timeframes,
             reconstruction_timeframes=reconstruction_timeframes,
+            sensor_position_path=sensor_position_path,
+            embedding_generator=embedding_generator,
+            n_dropout_sensors=n_dropout_sensors,
             in_resolution=trained_resolution,
             out_resolution=out_resolution,
         )

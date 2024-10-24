@@ -59,7 +59,7 @@ class CFDDataset(Dataset, DatasetMixin):
         n_samplings_per_chunk: int,
         resolution: Tuple[int, int],
         n_sensors: int,
-        dropout_probabilities: List[int],
+        dropout_probabilities: List[float],
         sensor_generator: Literal['LHS', 'AroundCylinder'], 
         embedding_generator: Literal['Voronoi', 'Mask'],
         seed: int,
@@ -74,7 +74,7 @@ class CFDDataset(Dataset, DatasetMixin):
         self.n_samplings_per_chunk: int = n_samplings_per_chunk
         self.resolution: Tuple[int, int] = resolution
         self.n_sensors: int = n_sensors
-        self.dropout_probabilities: List[int] = dropout_probabilities
+        self.dropout_probabilities: List[float] = dropout_probabilities
         self.seed: int = seed
         self.already_preloaded: bool = already_preloaded
 

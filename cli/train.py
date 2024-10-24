@@ -28,7 +28,7 @@ def main(config: Dict[str, Any]) -> None:
     n_sensors: int                              = int(config['dataset']['n_sensors'])
     sensor_generator: str                       = str(config['dataset']['sensor_generator'])
     embedding_generator: str                    = str(config['dataset']['embedding_generator'])
-    dropout_probabilities: List[int]            = list(config['dataset']['dropout_probabilities'])
+    dropout_probabilities: List[float]          = list(config['dataset']['dropout_probabilities'])
     seed: int                                   = int(config['dataset']['seed'])
     already_preloaded: bool                     = bool(config['dataset']['already_preloaded'])
     branch_net: str                             = str(config['architecture']['branch_net'])

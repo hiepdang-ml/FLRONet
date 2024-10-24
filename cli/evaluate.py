@@ -2,6 +2,7 @@ import argparse
 from typing import List, Dict, Any
 
 import yaml
+import torch
 from torch.optim import Optimizer, Adam
 
 from cfd.sensors import LHS, AroundCylinder
@@ -28,12 +29,18 @@ def main(config: Dict[str, Any]) -> None:
     n_sensors: int                              = int(config['dataset']['n_sensors'])
     sensor_generator: str                       = str(config['dataset']['sensor_generator'])
     embedding_generator: str                    = str(config['dataset']['embedding_generator'])
-    dropout_probabilities: List[int]            = list(config['dataset']['dropout_probabilities'])
     seed: int                                   = int(config['dataset']['seed'])
-    already_preloaded: bool                     = bool(config['dataset']['already_preloaded'])
+    n_dropout_sensors: int                      = int(config['evaluate']['n_dropout_sensors'])
     from_checkpoint: str                        = str(config['evaluate']['from_checkpoint'])
+    already_preloaded: bool                     = bool(config['evaluate']['already_preloaded'])
 
     # Instatiate the training datasets
+    if n_dropout_sensors == 0:
+        implied_dropout_probabilities: List[float] = []
+    else:
+        implied_dropout_probabilities: List[float] = [0.] * n_dropout_sensors
+        implied_dropout_probabilities[-1] = 1.
+
     dataset = CFDDataset(
         root='./data/test', 
         init_sensor_timeframes=init_sensor_timeframes,
@@ -41,7 +48,7 @@ def main(config: Dict[str, Any]) -> None:
         n_samplings_per_chunk=n_samplings_per_chunk,
         resolution=resolution,
         n_sensors=n_sensors,
-        dropout_probabilities=dropout_probabilities,
+        dropout_probabilities=implied_dropout_probabilities,
         sensor_generator=sensor_generator, 
         embedding_generator=embedding_generator,
         seed=seed,

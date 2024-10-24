@@ -1,6 +1,6 @@
 import os
 from abc import ABC, abstractmethod
-from typing import List, Tuple, Optional
+from typing import List, Tuple, Optional, Literal
 from tqdm import tqdm
 
 import numpy as np
@@ -216,15 +216,9 @@ class Predictor(Worker, DatasetMixin):
     def __init__(
         self, 
         net: FLRONetWithFNO | FLRONetWithUNet, 
-        sensor_position_path: str | None = None, 
-        embedding_generator: Voronoi | Mask | None = None
+
     ):
         self.net = net.cuda()
-        self.sensor_position_path: str | None = sensor_position_path
-        self.embedding_generator: Voronoi | Mask | None = embedding_generator
-        if sensor_position_path is not None:
-            self.original_sensor_positions: torch.Tensor = torch.load(sensor_position_path, weights_only=True).int().cuda()
-    
         self.metric = nn.MSELoss(reduction='sum')
 
     def predict_from_scratch(
@@ -232,11 +226,14 @@ class Predictor(Worker, DatasetMixin):
         case_dir: str, 
         sensor_timeframes: List[int],
         reconstruction_timeframes: List[int],
+        sensor_position_path: str, 
+        embedding_generator: Literal['Voronoi', 'Mask'],
+        n_dropout_sensors: int,
         in_resolution: Tuple[int, int],
         out_resolution: Tuple[int, int] | None = None,
     ):
-        assert isinstance(self.sensor_position_path, str)
-        assert isinstance(self.embedding_generator, (Voronoi, Mask))
+        assert isinstance(sensor_position_path, str)
+        assert embedding_generator in ('Voronoi', 'Mask')
         assert min(sensor_timeframes) <= min(reconstruction_timeframes)
         assert max(reconstruction_timeframes) <= max(sensor_timeframes)
         n_sensor_timeframes: int = len(sensor_timeframes)
@@ -256,7 +253,25 @@ class Predictor(Worker, DatasetMixin):
         sensor_frames = F.interpolate(input=sensor_frames.flatten(0, 1), size=in_resolution, mode='bicubic')
         sensor_frames = sensor_frames.unsqueeze(0)
         # prepare sensor frames
-        sensor_frames = self.embedding_generator(data=sensor_frames)
+        original_sensor_positions: torch.Tensor = torch.load(sensor_position_path, weights_only=True, map_location='cuda').int()
+        if n_dropout_sensors == 0:
+            implied_dropout_probabilities: List[float] = []
+        else:
+            implied_dropout_probabilities: List[float] = [0.] * n_dropout_sensors
+            implied_dropout_probabilities[-1] = 1.
+
+        if embedding_generator == 'Mask':
+            embedding_generator = Mask(
+                resolution=in_resolution, sensor_positions=original_sensor_positions, dropout_probabilities=implied_dropout_probabilities
+            )
+        else:
+            embedding_generator = Voronoi(
+                resolution=in_resolution, sensor_positions=original_sensor_positions, dropout_probabilities=implied_dropout_probabilities
+            )
+
+        sensor_frames = embedding_generator(data=sensor_frames)
+        n_sensors: int = embedding_generator.S
+        n_active_sensors: int = n_sensors - n_dropout_sensors
 
         self.net.eval()
         with torch.no_grad():
@@ -293,23 +308,23 @@ class Predictor(Worker, DatasetMixin):
             at_timeframe = int(reconstruction_timeframes[frame_idx].item())
             if isinstance(self.net, FLRONetWithUNet):
                 plot_frame(
-                    sensor_positions=self.original_sensor_positions,
+                    sensor_positions=original_sensor_positions,
                     reconstruction_frame=reconstruction_frame,
                     reduction=lambda x: compute_velocity_field(x, dim=0),
-                    title=f'{case_name.upper()} t={at_timeframe * 0.001:.3f}s',
+                    title=f'{case_name.upper()} t={at_timeframe * 0.001:.3f}s. active sensors: {str(n_active_sensors).zfill(2)}/{str(n_sensors).zfill(2)}',
                     filename=f'{case_name.lower()}_f{str(at_timeframe).zfill(3)}_{in_H}x{in_W}',
                 )
             else:
-                new_sensor_position: torch.Tensor = torch.zeros_like(self.original_sensor_positions, dtype=torch.float)
-                new_sensor_position[:, 0] = self.original_sensor_positions[:, 0] * out_H / in_H
-                new_sensor_position[:, 1] = self.original_sensor_positions[:, 1] * out_W / in_W
+                new_sensor_position: torch.Tensor = torch.zeros_like(original_sensor_positions, dtype=torch.float)
+                new_sensor_position[:, 0] = original_sensor_positions[:, 0] * out_H / in_H
+                new_sensor_position[:, 1] = original_sensor_positions[:, 1] * out_W / in_W
                 new_sensor_position = new_sensor_position.int()
                 plot_frame(
                     sensor_positions=new_sensor_position,
                     reconstruction_frame=reconstruction_frame,
                     reduction=lambda x: compute_velocity_field(x, dim=0),
-                    title=f'{case_name.upper()} t={at_timeframe * 0.001:.3f}s',
-                    filename=f'{case_name.lower()}_f{str(at_timeframe).zfill(3)}_{out_H}x{out_W}',
+                    title=f'{case_name.upper()} t={at_timeframe * 0.001:.3f}s. active sensors: {str(n_active_sensors).zfill(2)}/{str(n_sensors).zfill(2)}',
+                    filename=f'{case_name.lower()}_f{str(at_timeframe).zfill(3)}_d{n_dropout_sensors}_{out_H}x{out_W}'
                 )
 
 
@@ -317,6 +332,9 @@ class Predictor(Worker, DatasetMixin):
         self.net.eval()
         dataloader = DataLoader(dataset, batch_size=1, shuffle=False)
         trained_H, trained_W = dataset.resolution
+        n_sensors: int = dataset.sensor_positions.shape[0]
+        n_dropout_sensors: int = len(dataset.dropout_probabilities)
+        n_active_sensors: int = n_sensors - n_dropout_sensors
         with torch.no_grad():
             for sensor_timeframes, sensor_frames, fullstate_timeframes, fullstate_frames, case_names, sampling_ids in tqdm(dataloader):
                 # Data validation
@@ -324,12 +342,19 @@ class Predictor(Worker, DatasetMixin):
                 # Forward propagation
                 with autocast(device_type="cuda", dtype=torch.float16):
                     # Forward propagation
-                    reconstruction_frames: torch.Tensor = self.net(
-                        sensor_timeframes=sensor_timeframes,
-                        sensor_values=sensor_frames,
-                        fullstate_timeframes=fullstate_timeframes,
-                        out_resolution=dataset.resolution,
-                    )
+                    if isinstance(self.net, FLRONetWithUNet):
+                        reconstruction_frames: torch.Tensor = self.net(
+                            sensor_timeframes=sensor_timeframes,
+                            sensor_values=sensor_frames,
+                            fullstate_timeframes=fullstate_timeframes,
+                        )
+                    else:
+                        reconstruction_frames: torch.Tensor = self.net(
+                            sensor_timeframes=sensor_timeframes,
+                            sensor_values=sensor_frames,
+                            fullstate_timeframes=fullstate_timeframes,
+                            out_resolution=dataset.resolution,
+                        )
 
                 # Visualization
                 reconstruction_frames = reconstruction_frames.squeeze(dim=0)
@@ -356,8 +381,9 @@ class Predictor(Worker, DatasetMixin):
                         title=(
                             f'{case_name.lower()}s{sampling_id}: '
                             f't={at_timeframe * 0.001:.3f}s, '
+                            f'active sensors: {str(n_active_sensors).zfill(2)}/{str(n_sensors).zfill(2)}, '
                             f'RMSE: {frame_mean_rmse:.3f}'
                         ),
-                        filename=f'{case_name.lower()}s{sampling_id}_f{str(at_timeframe).zfill(3)}_{trained_H}x{trained_W}'
+                        filename=f'{case_name.lower()}s{sampling_id}_f{str(at_timeframe).zfill(3)}_d{n_dropout_sensors}_{trained_H}x{trained_W}'
                     )
 

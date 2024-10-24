@@ -20,7 +20,7 @@ class SensorEmbedding(ABC):
         self.sensor_positions: torch.Tensor = sensor_positions.float()
         assert sum(dropout_probabilities) <= 1, "Dropout probabilities must sum to less than 1"
         self.n_max_dropout_sensors: int = len(dropout_probabilities)
-        self.dropout_probabilities: List[int] = [1 - sum(dropout_probabilities)] + dropout_probabilities
+        self.dropout_probabilities: List[float] = [1 - sum(dropout_probabilities)] + dropout_probabilities
         self.S: int = sensor_positions.shape[0]  # Number of sensors
 
     @abstractmethod
