@@ -96,19 +96,16 @@ class SpectralConv2d(nn.Module):
         n_frames, embedding_dim, H, W = input.shape
         assert embedding_dim == self.embedding_dim
 
-        # Find the next powers of 2 for height and width
         padded_H: int = self.next_power_of_2(H)
         padded_W: int = self.next_power_of_2(W)
-        # Pad the input to make the height and width powers of 2
         if (padded_H, padded_W) != (H, W):
             padded_input: torch.Tensor = F.pad(input=input, pad=(0, padded_W - W, 0, padded_H - H), mode='constant', value=0)
         else:
             padded_input: torch.Tensor = input
         # FFT
         fourier_coeff: torch.Tensor = torch.fft.rfft2(padded_input, dim=(2, 3), norm="ortho")
-        # Initialize output tensors (real and imaginary) for the padded size
-        output_real = torch.zeros((n_frames, embedding_dim, H, W), device=input.device)
-        output_imag = torch.zeros((n_frames, embedding_dim, H, W), device=input.device)
+        output_real = torch.zeros((n_frames, embedding_dim, H, W), device='cuda')
+        output_imag = torch.zeros((n_frames, embedding_dim, H, W), device='cuda')
 
         pos_freq_slice: Tuple[slice, slice, slice, slice] = (
             slice(None), slice(None), slice(None, self.n_hmodes), slice(None, self.n_wmodes)
@@ -141,7 +138,7 @@ class SpectralConv2d(nn.Module):
         weights_real: torch.Tensor,
         weights_imag: torch.Tensor,
     ) -> Tuple[torch.Tensor, torch.Tensor]:
-        ops: str = 'nixy,ioxy->noxy'
+        ops: str = 'nihw,iohw->nohw'
         real_part: torch.Tensor = (
             torch.einsum(ops, input_real, weights_real) - torch.einsum(ops, input_imag, weights_imag)
         )
@@ -307,7 +304,7 @@ class FLRONetWithFNO(nn.Module):
         
         output: torch.Tensor = torch.zeros(
             batch_size, n_fullstate_timeframes, self.n_channels, out_H, out_W,
-            device=sensor_values.device
+            device='cuda'
         )
         for i in range(self.n_stacked_networks):
             # branch
@@ -366,7 +363,7 @@ class FLRONetWithUNet(nn.Module):
         
         output: torch.Tensor = torch.zeros(
             batch_size, n_fullstate_timeframes, self.n_channels, H, W,
-            device=sensor_values.device
+            device='cuda'
         )
         for i in range(self.n_stacked_networks):
             # branch

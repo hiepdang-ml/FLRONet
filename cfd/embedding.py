@@ -48,7 +48,7 @@ class Voronoi(SensorEmbedding):
             for t in range(T):
                 n_sensors_to_drop: int = n_dropout_sensors[i, t].item()
                 if n_sensors_to_drop > 0:
-                    dropout_indices = torch.randperm(self.S, device=data.device)[:n_sensors_to_drop]
+                    dropout_indices = torch.randperm(self.S, device='cuda')[:n_sensors_to_drop]
                     masks[i, t, dropout_indices] = False
 
         masks = masks.unsqueeze(-1).expand(N, T, self.S, H * W)

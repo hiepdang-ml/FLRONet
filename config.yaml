@@ -31,7 +31,7 @@ training:
   save_frequency: 1
 
 evaluate:
-  from_checkpoint: '.checkpoints/flronetfno10.pt'
+  from_checkpoint: '.checkpoints/flronetfno4.pt'
 
 inference:
   case_dir: 'data/test/case0015'
