@@ -63,22 +63,8 @@ class Trainer(Worker):
         self.train_batch_size: int = train_batch_size
         self.val_batch_size: int = val_batch_size
 
-        self.train_dataloader = DataLoader(
-            dataset=train_dataset, 
-            batch_size=train_batch_size, 
-            shuffle=True,
-            num_workers=4,
-            prefetch_factor=3,
-            pin_memory=True,
-        )
-        self.val_dataloader = DataLoader(
-            dataset=val_dataset, 
-            batch_size=val_batch_size, 
-            shuffle=False,
-            num_workers=4,
-            prefetch_factor=3,
-            pin_memory=True,
-        )
+        self.train_dataloader = DataLoader(dataset=train_dataset, batch_size=train_batch_size, shuffle=True)
+        self.val_dataloader = DataLoader(dataset=val_dataset, batch_size=val_batch_size, shuffle=False)
         self.loss_function: nn.Module = nn.MSELoss(reduction='sum')
 
         self.grad_scaler = GradScaler(device="cuda")
@@ -270,10 +256,10 @@ class Predictor(Worker, DatasetMixin):
         in_H, in_W = in_resolution
         
         # prepare reconstruction timeframes
-        reconstruction_timeframes: torch.Tensor = torch.tensor(reconstruction_timeframes, dtype=torch.int).cuda()
+        reconstruction_timeframes: torch.Tensor = torch.tensor(reconstruction_timeframes, dtype=torch.int, device='cuda')
         reconstruction_timeframes = reconstruction_timeframes.unsqueeze(dim=0)
         # prepare sensor timeframes
-        sensor_timeframes: torch.Tensor = torch.tensor(sensor_timeframes, dtype=torch.int).cuda()
+        sensor_timeframes: torch.Tensor = torch.tensor(sensor_timeframes, dtype=torch.int, device='cuda')
         sensor_timeframes = sensor_timeframes.unsqueeze(dim=0)
         # load raw data
         data: torch.Tensor = self.load2tensor(case_dir).cuda()
@@ -341,14 +327,7 @@ class Predictor(Worker, DatasetMixin):
 
     def predict_from_dataset(self, dataset: CFDDataset) -> None:
         self.net.eval()
-        dataloader = DataLoader(
-            dataset, 
-            batch_size=1, 
-            num_workers=4, 
-            prefetch_factor=3, 
-            pin_memory=True,
-            shuffle=False
-        )
+        dataloader = DataLoader(dataset, batch_size=1, shuffle=False)
         trained_H, trained_W = dataset.resolution
         with torch.no_grad():
             for sensor_timeframes, sensor_frames, fullstate_timeframes, fullstate_frames, case_names, sampling_ids in tqdm(dataloader):

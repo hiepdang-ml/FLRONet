@@ -47,7 +47,7 @@ class LHS(SensorGenerator):
         assert self.resolution is not None, 'self.resolution must be set before calling a SensorGenerator'
         lhs_samples: np.ndarray = self._sampling()
         # absolute positions
-        sensor_positions = torch.from_numpy(lhs_samples) * torch.tensor(data=self.resolution)
+        sensor_positions = torch.from_numpy(lhs_samples).cuda() * torch.tensor(data=self.resolution, device='cuda')
         return sensor_positions.int()
 
     def _sampling(self) -> np.ndarray:
@@ -91,9 +91,9 @@ class AroundCylinder(SensorGenerator):
         center_h_pixels: float = center_hw_meters[0] / h_scale
         center_w_pixels: float = center_hw_meters[1] / w_scale
         # compute sensor positions
-        sensor_positions: torch.Tensor = torch.zeros((self.n_sensors, len(self.resolution)), dtype=torch.int32)
-        sensor_positions[:, 0] = torch.from_numpy(np.cos(np.deg2rad(samples)) * radius_h_pixels + center_h_pixels)
-        sensor_positions[:, 1] = torch.from_numpy(np.sin(np.deg2rad(samples)) * radius_w_pixels + center_w_pixels)
+        sensor_positions: torch.Tensor = torch.zeros((self.n_sensors, len(self.resolution)), dtype=torch.int32, device='cuda')
+        sensor_positions[:, 0] = torch.from_numpy(np.cos(np.deg2rad(samples))).cuda() * radius_h_pixels + center_h_pixels
+        sensor_positions[:, 1] = torch.from_numpy(np.sin(np.deg2rad(samples))).cuda() * radius_w_pixels + center_w_pixels
         return sensor_positions
 
 

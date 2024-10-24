@@ -3,22 +3,23 @@ dataset:
   n_fullstate_timeframes_per_chunk: 1
   n_samplings_per_chunk: 1
   resolution: [140, 240]
-  n_sensors: 32
+  n_sensors: 10
   sensor_generator: 'LHS'  # AroundCylinder | LHS
   embedding_generator: 'Voronoi'  # Voronoi | Mask
+  dropout_probabilities: [0.1, 0.05, 0.05]   # [] for no dropout
   seed: 1
-  already_preloaded: false
+  already_preloaded: true
 
 architecture:
   branch_net: 'FNO'  # FNO | UNet
   n_channels: 2   # fixed for 2d problems
-  embedding_dim: 32
+  embedding_dim: 16
   n_stacked_networks: 1
   from_checkpoint: null  # set to null to train from scratch
   # FNO-specific configs:
-  n_fno_layers: 4
-  n_hmodes: 32
-  n_wmodes: 64
+  n_fno_layers: 2
+  n_hmodes: 12
+  n_wmodes: 24
 
 training:
   train_batch_size: 4

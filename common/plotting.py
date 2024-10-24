@@ -69,8 +69,8 @@ def plot_frame(
     else:
         max_value: float = max([frame.max().item() for frame in frames_to_plot])
 
-    # matplotlib.colors.Normalize(vmin=0, vmax=max_value)
-    norm = matplotlib.colors.Normalize(vmin=0, vmax=2.5)
+    norm = matplotlib.colors.Normalize(vmin=0, vmax=max_value)
+    # norm = matplotlib.colors.Normalize(vmin=0, vmax=2.5)
     for frame, ax, chart_title in zip(frames_to_plot, axs, chart_titles):
         im = ax.imshow(
             frame.squeeze(dim=0),
@@ -101,9 +101,36 @@ def plot_frame(
     os.makedirs(destination_directory, exist_ok=True)
     timestamp: dt.datetime = dt.datetime.now()
     if not filename:
-        filename =f"{destination_directory}/{timestamp.strftime('%Y%m%d%H%M%S')}{timestamp.microsecond // 1000:03d}.png"
-    else:
-        fig.savefig(f"{destination_directory}/{filename}.png")
+        filename: str = f"{timestamp.strftime('%Y%m%d%H%M%S')}{timestamp.microsecond // 1000:03d}"
+
+    fig.savefig(os.path.join(destination_directory, f'{filename}.png'))
     plt.close(fig)
+
+
+
+if __name__ == '__main__':
+    from cfd.dataset import CFDDataset
+    from common.functional import compute_velocity_field
+
+    dataset = CFDDataset(
+        root='./data/test',
+        init_sensor_timeframes=[0, 50, 100],
+        n_fullstate_timeframes_per_chunk=1,
+        n_samplings_per_chunk=1,
+        resolution=(140, 240),
+        n_sensors=5,
+        dropout_probabilities=[0., 1.,],
+        sensor_generator='LHS', 
+        embedding_generator='Mask',
+        seed=1,
+        already_preloaded=False,
+    )
+
+    sensor_timeframe_tensor, sensor_tensor, fullstate_timeframe_tensor, fullstate_tensor, case_name, sampling_id = dataset[0]
+    plot_frame(
+        sensor_positions=dataset.sensor_positions,
+        sensor_frame=sensor_tensor[0],
+        reduction=lambda x: compute_velocity_field(x, dim=0),
+    )
 
 

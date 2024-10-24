@@ -28,25 +28,10 @@ def main(config: Dict[str, Any]) -> None:
     n_sensors: int                              = int(config['dataset']['n_sensors'])
     sensor_generator: str                       = str(config['dataset']['sensor_generator'])
     embedding_generator: str                    = str(config['dataset']['embedding_generator'])
+    dropout_probabilities: List[int]            = list(config['dataset']['dropout_probabilities'])
     seed: int                                   = int(config['dataset']['seed'])
     already_preloaded: bool                     = bool(config['dataset']['already_preloaded'])
     from_checkpoint: str                        = str(config['evaluate']['from_checkpoint'])
-
-    # Instatiate the sensor generator
-    if sensor_generator == 'AroundCylinder':
-        sensor_generator = AroundCylinder(n_sensors)
-    elif sensor_generator == 'LHS':
-        sensor_generator = LHS(n_sensors)
-    else:
-        raise ValueError(f'Invalid sensor_generator: {sensor_generator}')
-
-    # Instatiate the embedding generator
-    if embedding_generator == 'Mask':
-        embedding_generator = Mask()
-    elif embedding_generator == 'Voronoi':
-        embedding_generator = Voronoi()
-    else:
-        raise ValueError(f'Invalid embedding_generator: {embedding_generator}')
 
     # Instatiate the training datasets
     dataset = CFDDataset(
@@ -55,6 +40,8 @@ def main(config: Dict[str, Any]) -> None:
         n_fullstate_timeframes_per_chunk=n_fullstate_timeframes_per_chunk,
         n_samplings_per_chunk=n_samplings_per_chunk,
         resolution=resolution,
+        n_sensors=n_sensors,
+        dropout_probabilities=dropout_probabilities,
         sensor_generator=sensor_generator, 
         embedding_generator=embedding_generator,
         seed=seed,

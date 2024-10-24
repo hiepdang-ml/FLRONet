@@ -1,6 +1,6 @@
 import os
 import sys
-from typing import List, Tuple, Dict, Any
+from typing import List, Tuple, Dict, Any, Literal
 import shutil
 from tqdm import tqdm
 import json
@@ -19,8 +19,8 @@ class DatasetMixin:
     def load2tensor(self, case_dir: str) -> torch.Tensor:
         return torch.stack(
             tensors=[
-                torch.from_numpy(np.load(os.path.join(case_dir, 'u.npy'))),
-                torch.from_numpy(np.load(os.path.join(case_dir, 'v.npy')))
+                torch.from_numpy(np.load(os.path.join(case_dir, 'u.npy'))).cuda(),
+                torch.from_numpy(np.load(os.path.join(case_dir, 'v.npy'))).cuda(),
             ],
             dim=1
         ).float()
@@ -29,17 +29,19 @@ class DatasetMixin:
         # compute number of steps to reach n_timeframes (also the number of chunks)
         n_chunks = self.total_timeframes_per_case - max(self.init_sensor_timeframes)
         # prepare sensor timeframes (fixed)
-        sensor_timeframes: torch.Tensor = torch.tensor(self.init_sensor_timeframes) + torch.arange(n_chunks).unsqueeze(1)
+        sensor_timeframes: torch.Tensor = (
+            torch.tensor(self.init_sensor_timeframes, device='cuda') + torch.arange(n_chunks, device='cuda').unsqueeze(1)
+        )
         assert sensor_timeframes.shape == (n_chunks, len(self.init_sensor_timeframes))
         return sensor_timeframes.int()
 
     def prepare_fullstate_timeframes(self, seed: int) -> torch.IntTensor:
         n_chunks = self.total_timeframes_per_case - max(self.init_sensor_timeframes)
-        fullstate_timeframes: torch.Tensor = torch.empty((n_chunks, self.n_fullstate_timeframes_per_chunk), dtype=torch.int)
+        fullstate_timeframes: torch.Tensor = torch.empty((n_chunks, self.n_fullstate_timeframes_per_chunk), dtype=torch.int, device='cuda')
         for chunk_idx in range(n_chunks):
             torch.random.manual_seed(seed + chunk_idx)
-            random_init_timeframes = torch.randperm(
-                n=max(self.init_sensor_timeframes)
+            random_init_timeframes: torch.Tensor = torch.randperm(
+                n=max(self.init_sensor_timeframes), device='cuda'
             )[:self.n_fullstate_timeframes_per_chunk].sort()[0]
             fullstate_timeframes[chunk_idx] = random_init_timeframes + chunk_idx
 
@@ -56,25 +58,23 @@ class CFDDataset(Dataset, DatasetMixin):
         n_fullstate_timeframes_per_chunk: int,
         n_samplings_per_chunk: int,
         resolution: Tuple[int, int],
-        sensor_generator: LHS | AroundCylinder, 
-        embedding_generator: Voronoi | Mask,
+        n_sensors: int,
+        dropout_probabilities: List[int],
+        sensor_generator: Literal['LHS', 'AroundCylinder'], 
+        embedding_generator: Literal['Voronoi', 'Mask'],
         seed: int,
         already_preloaded: bool
     ) -> None:
         
         super().__init__()
-        self.case_directories: List[str] = sorted(
-            [os.path.join(root, case_dir) for case_dir in os.listdir(root)]
-        )
-
+        self.case_directories: List[str] = sorted([os.path.join(root, case_dir) for case_dir in os.listdir(root)])
         self.root: str = root
         self.init_sensor_timeframes: List[int] = init_sensor_timeframes
         self.n_fullstate_timeframes_per_chunk: int = n_fullstate_timeframes_per_chunk
         self.n_samplings_per_chunk: int = n_samplings_per_chunk
         self.resolution: Tuple[int, int] = resolution
-        self.sensor_generator: LHS | AroundCylinder = sensor_generator
-        self.sensor_generator.seed = seed
-        self.embedding_generator: Voronoi | Mask = embedding_generator
+        self.n_sensors: int = n_sensors
+        self.dropout_probabilities: List[int] = dropout_probabilities
         self.seed: int = seed
         self.already_preloaded: bool = already_preloaded
 
@@ -87,12 +87,39 @@ class CFDDataset(Dataset, DatasetMixin):
         self.sensor_values_dest: str = os.path.join(self.dest, 'sensor_values')
         self.fullstate_timeframes_dest: str = os.path.join(self.dest, 'fullstate_timeframes')
         self.fullstate_values_dest: str = os.path.join(self.dest, 'fullstate_values')
-
         self.sensor_positions_dest: str = os.path.join(self.dest, 'sensor_positions')
         self.metadata_dest: str = os.path.join(self.dest, 'metadata')
-        
-        self.sensor_timeframes = self.prepare_sensor_timeframes()
-        if self.already_preloaded:
+
+        if not self.already_preloaded:
+            if sensor_generator == 'LHS':
+                self.sensor_generator = LHS(n_sensors=n_sensors)
+                self.sensor_generator.seed = seed
+                self.sensor_generator.resolution = resolution
+                self.sensor_positions = self.sensor_generator()
+            else:
+                self.sensor_generator = AroundCylinder(n_sensors=n_sensors)
+                self.sensor_generator.seed = seed
+                self.sensor_generator.resolution = resolution
+                self.sensor_positions = self.sensor_generator(
+                    hw_meters=(0.14, 0.24), center_hw_meters=(0.07, 0.065), radius_meters=0.03,
+                )
+            
+            assert self.sensor_positions.shape == (self.sensor_generator.n_sensors, 2)
+            if embedding_generator == 'Mask':
+                self.embedding_generator = Mask(
+                    resolution=resolution, sensor_positions=self.sensor_positions, dropout_probabilities=dropout_probabilities
+                )
+            else:
+                self.embedding_generator = Voronoi(
+                    resolution=resolution, sensor_positions=self.sensor_positions, dropout_probabilities=dropout_probabilities
+                )
+
+            self.sensor_timeframes = self.prepare_sensor_timeframes()
+            self.case_names: List[str] = []
+            self.sampling_ids: List[int] = []
+            self.__write2disk()
+
+        else:
             self.sensor_positions: torch.Tensor = torch.load(
                 f=os.path.join(self.sensor_positions_dest, 'pos.pt'), weights_only=True
             )
@@ -100,11 +127,6 @@ class CFDDataset(Dataset, DatasetMixin):
                 records: List[Dict[str, Any]] = json.load(f)
                 self.case_names: List[str] = [record['case_name'] for record in records]
                 self.sampling_ids: List[int] = [record['sampling_id'] for record in records]
-        else:
-            self.sensor_positions: torch.Tensor
-            self.case_names: List[str] = []
-            self.sampling_ids: List[int] = []
-            self.__write2disk()
 
     def __getitem__(self, idx: int) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         prefix: str = f'_{self.case_names[idx]}_{self.sampling_ids[idx]}_'
@@ -151,17 +173,6 @@ class CFDDataset(Dataset, DatasetMixin):
         os.makedirs(name=self.sensor_positions_dest, exist_ok=True)
         os.makedirs(name=self.metadata_dest, exist_ok=True)
 
-        # prepare sensor positions
-        self.sensor_generator.resolution = self.resolution
-        self.sensor_generator.seed = self.seed
-        if isinstance(self.sensor_generator, LHS):
-            self.sensor_positions = self.sensor_generator()
-        else:
-            self.sensor_positions = self.sensor_generator(
-                hw_meters=(0.14, 0.24), center_hw_meters=(0.07, 0.065), radius_meters=0.03,
-            )
-
-        assert self.sensor_positions.shape == (self.sensor_generator.n_sensors, 2)
         # save self.sensor_positions for self.already_preloaded = True
         torch.save(obj=self.sensor_positions, f=os.path.join(self.sensor_positions_dest, 'pos.pt'))
 
@@ -170,22 +181,18 @@ class CFDDataset(Dataset, DatasetMixin):
         for case_id, case_dir in enumerate(self.case_directories):
             data: torch.Tensor = torch.stack(
                 tensors=[
-                    torch.from_numpy(np.load(os.path.join(case_dir, 'u.npy'))),
-                    torch.from_numpy(np.load(os.path.join(case_dir, 'v.npy')))
+                    torch.from_numpy(np.load(os.path.join(case_dir, 'u.npy'))).cuda(),
+                    torch.from_numpy(np.load(os.path.join(case_dir, 'v.npy'))).cuda(),
                 ],
                 dim=1
             ).float()
             
             # sensor data
-            sensor_data: torch.Tensor = data[self.sensor_timeframes]
-            n_chunks: int = sensor_data.shape[0]
+            sensor_frame_data: torch.Tensor = data[self.sensor_timeframes]
+            n_chunks: int = sensor_frame_data.shape[0]
             # resize sensor frames (original resolution is 64 x 64, which is not proportional to 0.14m x 0.24m)
-            sensor_data = F.interpolate(input=sensor_data.flatten(0, 1), size=self.resolution, mode='bicubic')
-            sensor_data = sensor_data.reshape(n_chunks, self.n_sensor_timeframes_per_chunk, 2, self.H, self.W)
-            # compute sensor data for entire space
-            sensor_data = self.embedding_generator(data=sensor_data, sensor_positions=self.sensor_positions)
-            assert sensor_data.shape == (n_chunks, self.n_sensor_timeframes_per_chunk, 2, self.H, self.W)
-
+            sensor_frame_data = F.interpolate(input=sensor_frame_data.flatten(0, 1), size=self.resolution, mode='bicubic')
+            sensor_frame_data = sensor_frame_data.reshape(n_chunks, self.n_sensor_timeframes_per_chunk, 2, self.H, self.W)
             for sampling_id in range(self.n_samplings_per_chunk):
                 # fullstate data
                 fullstate_timeframes: torch.Tensor = self.prepare_fullstate_timeframes(seed=self.seed + case_id + sampling_id)
@@ -193,10 +200,12 @@ class CFDDataset(Dataset, DatasetMixin):
                 # resize fullstate frames
                 fullstate_data = F.interpolate(input=fullstate_data.flatten(0, 1), size=self.resolution, mode='bicubic')
                 fullstate_data = fullstate_data.reshape(n_chunks, self.n_fullstate_timeframes_per_chunk, 2, self.H, self.W)
-
                 assert fullstate_data.shape == (n_chunks, self.n_fullstate_timeframes_per_chunk, 2, self.H, self.W)
                 assert fullstate_timeframes.shape == (n_chunks, self.n_fullstate_timeframes_per_chunk)
-
+                # compute sensor data for entire space
+                sensor_data: torch.Tensor = self.embedding_generator(data=sensor_frame_data, seed=self.seed + case_id + sampling_id)
+                assert sensor_data.shape == (n_chunks, self.n_sensor_timeframes_per_chunk, 2, self.H, self.W)
+                # Write each sample to disk
                 for idx in tqdm(range(n_chunks), desc=f'Case {case_id + 1} | Sampling {sampling_id + 1}: '):
                     # case name & sampling id
                     case_name: str = os.path.basename(case_dir)
