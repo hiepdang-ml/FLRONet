@@ -91,9 +91,7 @@ class SpectralConv2d(nn.Module):
             self.scale * torch.randn(2, embedding_dim, embedding_dim, n_hmodes, n_wmodes, dtype=torch.float)
         )
 
-    @autocast(device_type="cuda", enabled=False)
     def forward(self, input: torch.Tensor) -> torch.Tensor:
-        input = input.float()
         assert input.ndim == 4
         n_frames, embedding_dim, H, W = input.shape
         assert embedding_dim == self.embedding_dim
