@@ -34,11 +34,12 @@ evaluate:
   from_checkpoint: '.checkpoints/flronetfno4.pt'
 
 inference:
-  case_dir: 'data/test/case0015'
+  case_dir: 'data/test/case0005'
   sensor_timeframes: [620, 625, 630, 635, 640]
   reconstruction_timeframes: [632]
   sensor_position_path: 'tensors/train/sensor_positions/pos.pt'
-  from_checkpoint: '.checkpoints/flronetfno10.pt'
+  n_dropout_sensors: 2
+  from_checkpoint: '.checkpoints/flronetfno4.pt'
   # FNO-specific configs:
   # out_resolution: [140, 240]
   # out_resolution: [280, 480]

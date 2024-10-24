@@ -2,6 +2,7 @@ import argparse
 from typing import Tuple, List, Dict, Any
 
 import yaml
+import torch
 from torch.optim import Optimizer, Adam
 
 from cfd.embedding import Mask, Voronoi
@@ -24,15 +25,26 @@ def main(config: Dict[str, Any]) -> None:
     sensor_timeframes: List[int]                = list(config['inference']['sensor_timeframes'])
     reconstruction_timeframes: List[int]        = list(config['inference']['reconstruction_timeframes'])
     sensor_position_path: str                   = str(config['inference']['sensor_position_path'])
+    n_dropout_sensors: int                      = int(config['inference']['n_dropout_sensors'])
     from_checkpoint: str                        = str(config['inference']['from_checkpoint'])
     trained_resolution: Tuple[int, int]         = tuple(config['dataset']['resolution'])
     out_resolution: Tuple[int, int]             = tuple(config['inference']['out_resolution'])
 
     # Instatiate the embedding generator
+    sensor_positions: torch.Tensor = torch.load(sensor_position_path, weights_only=True, map_location='cuda')
+    if n_dropout_sensors == 0:
+        implied_dropout_probabilities: List[float] = []
+    else:
+        implied_dropout_probabilities: List[float] = [0.] * n_dropout_sensors
+        implied_dropout_probabilities[-1] = 1.
     if embedding_generator == 'Mask':
-        embedding_generator = Mask()
+        embedding_generator = Mask(
+            resolution=trained_resolution, sensor_positions=sensor_positions, dropout_probabilities=implied_dropout_probabilities
+        )
     elif embedding_generator == 'Voronoi':
-        embedding_generator = Voronoi()
+        embedding_generator = Voronoi(
+            resolution=trained_resolution, sensor_positions=sensor_positions, dropout_probabilities=implied_dropout_probabilities
+        )
     else:
         raise ValueError(f'Invalid embedding_generator: {embedding_generator}')
 

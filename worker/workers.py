@@ -41,10 +41,6 @@ class Worker:
         assert fullstate_frames.shape == (batch_size, n_fullstate_frames, n_channels, H, W)
         return batch_size, n_sensor_frames, n_fullstate_frames, n_channels, H, W
 
-    #helper
-    @staticmethod
-    def _move2gpu(*tensors) -> Tuple[torch.Tensor,... ]:
-        return tuple(tensor.cuda() for tensor in tensors)
 
 class Trainer(Worker):
 
@@ -107,10 +103,6 @@ class Trainer(Worker):
                 timer.start_batch(epoch, batch)
                 # Data validation
                 self._validate_inputs(sensor_timeframes, sensor_frames, fullstate_timeframes, fullstate_frames)
-                # Move to GPU
-                sensor_timeframes, sensor_frames, fullstate_timeframes, fullstate_frames = self._move2gpu(
-                    sensor_timeframes, sensor_frames, fullstate_timeframes, fullstate_frames
-                )
                 self.optimizer.zero_grad()
                 # Use automatic mixed precision to speed up on A100/H100 GPUs
                 with autocast(device_type="cuda", dtype=torch.float16):
@@ -192,10 +184,6 @@ class Trainer(Worker):
             for sensor_timeframes, sensor_frames, fullstate_timeframes, fullstate_frames, _, _ in self.val_dataloader:
                 # Data validation
                 self._validate_inputs(sensor_timeframes, sensor_frames, fullstate_timeframes, fullstate_frames)
-                # Move to GPU
-                sensor_timeframes, sensor_frames, fullstate_timeframes, fullstate_frames = self._move2gpu(
-                    sensor_timeframes, sensor_frames, fullstate_timeframes, fullstate_frames
-                )
                 # Forward propagation
                 with autocast(device_type="cuda", dtype=torch.float16):
                     # Forward propagation
@@ -262,13 +250,13 @@ class Predictor(Worker, DatasetMixin):
         sensor_timeframes: torch.Tensor = torch.tensor(sensor_timeframes, dtype=torch.int, device='cuda')
         sensor_timeframes = sensor_timeframes.unsqueeze(dim=0)
         # load raw data
-        data: torch.Tensor = self.load2tensor(case_dir).cuda()
+        data: torch.Tensor = self.load2tensor(case_dir) # already in GPU
         # resize (original resolution is 64 x 64, which is not proportional to 0.14m x 0.24m)
         sensor_frames: torch.Tensor = data[sensor_timeframes]
         sensor_frames = F.interpolate(input=sensor_frames.flatten(0, 1), size=in_resolution, mode='bicubic')
         sensor_frames = sensor_frames.unsqueeze(0)
         # prepare sensor frames
-        sensor_frames = self.embedding_generator(data=sensor_frames, sensor_positions=self.original_sensor_positions)
+        sensor_frames = self.embedding_generator(data=sensor_frames)
 
         self.net.eval()
         with torch.no_grad():
@@ -333,10 +321,6 @@ class Predictor(Worker, DatasetMixin):
             for sensor_timeframes, sensor_frames, fullstate_timeframes, fullstate_frames, case_names, sampling_ids in tqdm(dataloader):
                 # Data validation
                 self._validate_inputs(sensor_timeframes, sensor_frames, fullstate_timeframes, fullstate_frames)
-                # Move to GPU
-                sensor_timeframes, sensor_frames, fullstate_timeframes, fullstate_frames = self._move2gpu(
-                    sensor_timeframes, sensor_frames, fullstate_timeframes, fullstate_frames
-                )
                 # Forward propagation
                 with autocast(device_type="cuda", dtype=torch.float16):
                     # Forward propagation
