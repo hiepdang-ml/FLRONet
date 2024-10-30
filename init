@@ -15,10 +15,8 @@ sudo apt-get install zip unzip
 
 # Download data
 wget https://huggingface.co/datasets/chen-yingfa/CFDBench/resolve/main/cylinder/bc.zip?download=true -O bc.zip
-wget https://huggingface.co/datasets/chen-yingfa/CFDBench/resolve/main/cylinder/prop.zip?download=true -O prop.zip
 unzip bc.zip -d bc 
-unzip prop.zip -d prop
-rm *.zip
+rm bc.zip
 
 # Remove case0000 since it only has 620 frames, others have 1000
 rm -r bc/case0000
@@ -26,4 +24,3 @@ rm -r bc/case0000
 # Move to 'raw' directory
 mkdir -p data
 mv bc data
-mv prop data

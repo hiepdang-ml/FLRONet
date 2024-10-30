@@ -5,8 +5,17 @@ export source_dir="data/bc"
 export train_dir="data/train"
 export test_dir="data/test"
 
-export n_train=44
-export n_test=5
+# Manually sorted train and test cases
+train_cases=(
+    "case0001" "case0002" "case0003" "case0004" "case0005" "case0006" "case0007"
+    "case0008" "case0009" "case0010" "case0011" "case0012" "case0013" "case0014"
+    "case0015" "case0016" "case0017" "case0018" "case0019" "case0020" "case0021"
+    "case0022" "case0023" "case0024" "case0025" "case0026" "case0027" "case0028"
+    "case0029" "case0030" "case0031" "case0032" "case0033" "case0035" "case0036"
+    "case0037" "case0039" "case0040" "case0042" "case0043" "case0044" "case0046"
+    "case0047" "case0048"
+)
+test_cases=("case0034" "case0038" "case0041" "case0045" "case0049")
 
 ##############################
 
@@ -16,22 +25,17 @@ if [ -d "$test_dir" ]; then rm -r "$test_dir"; fi
 mkdir -p "$train_dir"
 mkdir -p "$test_dir"
 
-export all_cases=$(find "$source_dir" -maxdepth 1 -mindepth 1 -type d)
-export shuffled_cases=$(echo "$all_cases" | shuf)
-
-export train_cases=$(echo "$shuffled_cases" | head -n "$n_train")
-export test_cases=$(echo "$shuffled_cases" | tail -n "$n_test")
-
-for case in $train_cases; do
-    cp -r "$case" "$train_dir"
+# Copy fixed cases to train and test directories
+for case in "${train_cases[@]}"; do
+    cp -r "$source_dir/$case" "$train_dir"
 done
 
-for case in $test_cases; do
-    cp -r "$case" "$test_dir"
+for case in "${test_cases[@]}"; do
+    cp -r "$source_dir/$case" "$test_dir"
 done
 
 echo "Train cases:"
-echo $train_cases
+echo "${train_cases[@]}"
 
 echo "Test cases:"
-echo $test_cases
+echo "${test_cases[@]}"
