@@ -1,6 +1,8 @@
 import os
+import sys
 import pathlib
 import time
+import warnings
 from typing import List, Optional, Dict, TextIO, Any, Tuple, NamedTuple
 from collections import defaultdict
 import datetime as dt
@@ -339,13 +341,22 @@ class CheckpointLoader:
         # Optimizer metadata
         self.optimizer_classname: str = self.__checkpoint['optimizer']['classname']
 
-    def load(self, scope: Dict[str, Any]) -> Tuple[nn.Module, Optimizer]:
+    def load(
+        self, 
+        scope: Dict[str, Any], 
+        ignored_modules: List[str] = [], 
+        **overrided_params: Dict[str, Any]
+    ) -> Tuple[nn.Module, Optimizer]:
         """
         Load the model and optimizer from the checkpoint.
 
         Parameters:
             - scope (Dict[str, Any]): The namespace to look up the model and optimizer object. 
                 It's typically the dictionary output of `globals()` or `locals()`
+            - ignored_modules (List[str]): names of modules that are excluded from loading.
+                Default is []
+            - **overrided_params (Dict[str, Any]): overrid loaded model parameters (for later retrain). 
+                Default is {}, which means keeping the original model parameters unchanged
         
         Returns:
             - Tuple[nn.Module, Optimizer]: The model and optimizer loaded from the checkpoint.
@@ -363,19 +374,35 @@ class CheckpointLoader:
             )
         
         # Instantiate model and optimizer
-        model = eval(self.model_classname, scope)(**self.model_kwargs)
-        optimizer = eval(self.optimizer_classname, scope)(params=model.parameters())
+        if overrided_params:
+            print({'Original': self.model_kwargs, 'Changed params': overrided_params})
+            if input('Enter "yes" to confirm new model parameters: ').lower() == 'yes':
+                self.model_kwargs.update(overrided_params)
+            else:
+                sys.exit()
+
+        model: nn.Module = eval(self.model_classname, scope)(**self.model_kwargs)
+        optimizer: Optimizer = eval(self.optimizer_classname, scope)(params=model.parameters())
 
         # Load model from model state_dict and check for compatibility
         model_states: Dict[str, Any] = self.__checkpoint['model']['states']
-        model_incompatible_keys: NamedTuple = model.load_state_dict(model_states)   # inplace update
+        for ignored_module in ignored_modules:
+            model_states = {k: v for k, v in model_states.items() if not k.startswith(ignored_module)}
+
+        model_incompatible_keys: NamedTuple = model.load_state_dict(model_states, strict=False)   # inplace update
+        print(model_incompatible_keys)
         if model_incompatible_keys.missing_keys:  # List[str]
-            raise RuntimeError(f'Missing keys from the loaded model checkpoint: {model_incompatible_keys.missing_keys}')
+            warnings.warn(
+                f'Missing keys from the loaded model checkpoint: {model_incompatible_keys.missing_keys}', 
+                category=UserWarning
+            )
         if model_incompatible_keys.unexpected_keys: # List[str]
-            raise RuntimeError(f'Unexpected keys found in the loaded model checkpoint: {model_incompatible_keys.unexpected_keys}')
+            warnings.warn(
+                f'Unexpected keys found in the loaded model checkpoint: {model_incompatible_keys.unexpected_keys}', 
+                category=UserWarning
+            )
         
         # Load optimizer from optimizer state_dict, it's always compatible
         optimizer_states: Dict[str, Any] = self.__checkpoint['optimizer']['states']
         optimizer.load_state_dict(optimizer_states) # `load_state_dict` of optimizers always returns None, inplace update
-
         return model, optimizer

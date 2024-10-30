@@ -72,7 +72,6 @@ class Trainer(Worker):
             raise ValueError('No GPUs are found in the system')
         
         self.optimizer = Adam(params=self.net.parameters(), lr=lr)
-        self.scheduler = torch.optim.lr_scheduler.ExponentialLR(self.optimizer, gamma=0.98)
 
     def train(
         self, 
@@ -148,8 +147,6 @@ class Trainer(Worker):
                     filename=f'{checkpoint_prefix}{epoch}.pt',
                 )
 
-            # Update learning rate
-            self.scheduler.step()
             # Reset metric records for next epoch
             train_metrics.reset()
             # Evaluate
@@ -335,6 +332,7 @@ class Predictor(Worker, DatasetMixin):
         n_sensors: int = dataset.sensor_positions.shape[0]
         n_dropout_sensors: int = len(dataset.dropout_probabilities)
         n_active_sensors: int = n_sensors - n_dropout_sensors
+        metrics: List[float] = []
         with torch.no_grad():
             for sensor_timeframes, sensor_frames, fullstate_timeframes, fullstate_frames, case_names, sampling_ids in tqdm(dataloader):
                 # Data validation
@@ -360,7 +358,6 @@ class Predictor(Worker, DatasetMixin):
                 reconstruction_frames = reconstruction_frames.squeeze(dim=0)
                 fullstate_frames = fullstate_frames.squeeze(dim=0)
                 fullstate_timeframes = fullstate_timeframes.squeeze(dim=0)
-
                 for frame_idx in range(fullstate_timeframes.shape[0]):
                     reconstruction_frame: torch.Tensor = reconstruction_frames[frame_idx]
                     fullstate_frame: torch.Tensor = fullstate_frames[frame_idx]
@@ -386,4 +383,6 @@ class Predictor(Worker, DatasetMixin):
                         ),
                         filename=f'{case_name.lower()}s{sampling_id}_f{str(at_timeframe).zfill(3)}_d{n_dropout_sensors}_{trained_H}x{trained_W}'
                     )
+                    metrics.append(frame_mean_rmse)
 
+        return sum(metrics) / len(metrics)

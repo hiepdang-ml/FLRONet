@@ -235,25 +235,57 @@ class StackedTrunkNet(nn.Module):
         super().__init__()
         self.total_timeframes: int = total_timeframes
         self.embedding_dim: int = embedding_dim
-        self.time_embedding = nn.Embedding(num_embeddings=total_timeframes, embedding_dim=embedding_dim, max_norm=1.)
-        nn.init.uniform_(tensor=self.time_embedding.weight, a=0, b=1)
+
+        t = torch.arange(total_timeframes, dtype=torch.float, device='cuda').unsqueeze(1)
+        assert t.shape == (total_timeframes, 1)
+        w = 1. / torch.pow(
+            input=10_000, 
+            exponent=torch.arange(start=0, end=embedding_dim, step=2, device='cuda').float() / embedding_dim,
+        )
+        assert w.shape == (embedding_dim // 2,)
+        self.sinusoid_pos = torch.zeros(total_timeframes, embedding_dim)
+        self.sinusoid_pos[:, 0::2] = torch.sin(t * w)
+        self.sinusoid_pos[:, 1::2] = torch.cos(t * w)
+
+        self.mlp = nn.Sequential(
+            nn.Linear(in_features=embedding_dim, out_features=embedding_dim),
+            nn.ReLU(),
+            nn.Linear(in_features=embedding_dim, out_features=embedding_dim),
+            nn.ReLU(),
+            nn.Linear(in_features=embedding_dim, out_features=embedding_dim),
+        )
 
     def forward(self, fullstate_timeframes: torch.LongTensor, sensor_timeframes: torch.LongTensor) -> torch.Tensor:
         assert fullstate_timeframes.ndim == sensor_timeframes.ndim == 2
         batch_size, n_fullstate_timeframes = fullstate_timeframes.shape
         n_sensor_timeframes: int = sensor_timeframes.shape[1]
         # compute temporal embeddings
-        fullstate_time_embeddings: torch.Tensor = self.time_embedding(input=fullstate_timeframes)
-        assert fullstate_time_embeddings.shape == (batch_size, n_fullstate_timeframes, self.embedding_dim)
-        sensor_time_embeddings: torch.Tensor = self.time_embedding(input=sensor_timeframes)
-        assert sensor_time_embeddings.shape == (batch_size, n_sensor_timeframes, self.embedding_dim)
-        # condition fullstate time on sensor time
-        output: torch.Tensor = torch.einsum('nse,nfe->nsf', sensor_time_embeddings, fullstate_time_embeddings)
+        fullstate_time_embedding: torch.Tensor = self.mlp(self.sinusoid_pos[fullstate_timeframes])
+        assert fullstate_time_embedding.shape == (batch_size, n_fullstate_timeframes, self.embedding_dim)
+        sensor_time_embedding: torch.Tensor = self.mlp(self.sinusoid_pos[sensor_timeframes])
+        assert sensor_time_embedding.shape == (batch_size, n_sensor_timeframes, self.embedding_dim)
+        output: torch.Tensor = torch.einsum('nse,nfe->nsf', sensor_time_embedding, fullstate_time_embedding)
         assert output.shape == (batch_size, n_sensor_timeframes, n_fullstate_timeframes)
         return output
 
 
-class FLRONetWithFNO(nn.Module):
+class FLRONetMixin:
+
+    def freeze_branchnets(self):
+        for branch_net in self.branch_nets:
+            for param in branch_net.parameters():
+                param.requires_grad = False
+
+    def freeze_trunknets(self):
+        for trunk_net in self.trunk_nets:
+            for param in trunk_net.parameters():
+                param.requires_grad = False
+
+    def freeze_bias(self):
+        self.bias.requires_grad = False
+
+
+class FLRONetWithFNO(nn.Module, FLRONetMixin):
 
     def __init__(
         self,
@@ -323,7 +355,7 @@ class FLRONetWithFNO(nn.Module):
         return output + self.bias
 
 
-class FLRONetWithUNet(nn.Module):
+class FLRONetWithUNet(nn.Module, FLRONetMixin):
 
     def __init__(self, n_channels: int, embedding_dim: int, total_timeframes: int, n_stacked_networks: int):
         super().__init__()

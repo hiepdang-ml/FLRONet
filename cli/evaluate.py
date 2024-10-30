@@ -60,8 +60,10 @@ def main(config: Dict[str, Any]) -> None:
     net: FLRONetWithFNO | FLRONetWithUNet = checkpoint_loader.load(scope=globals())[0]
         
     # Make prediction
+    print(f'Using: {from_checkpoint}')
     predictor = Predictor(net=net)
-    predictor.predict_from_dataset(dataset)
+    avg_metric: float = predictor.predict_from_dataset(dataset)
+    print(avg_metric)
 
 
 if __name__ == "__main__":

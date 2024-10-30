@@ -31,6 +31,7 @@ def main(config: Dict[str, Any]) -> None:
     out_resolution: Tuple[int, int]             = tuple(config['inference']['out_resolution'])
 
     # Load the model
+    print(f'Using: {from_checkpoint}')
     checkpoint_loader = CheckpointLoader(checkpoint_path=from_checkpoint)
     net: FLRONetWithFNO | FLRONetWithUNet = checkpoint_loader.load(scope=globals())[0]
     

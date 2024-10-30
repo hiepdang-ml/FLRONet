@@ -20,7 +20,7 @@ class SensorEmbedding(ABC):
         self.sensor_positions: torch.Tensor = sensor_positions.float()
         assert sum(dropout_probabilities) <= 1, "Dropout probabilities must sum to less than 1"
         self.n_max_dropout_sensors: int = len(dropout_probabilities)
-        self.dropout_probabilities: List[float] = [1 - sum(dropout_probabilities)] + dropout_probabilities
+        self.dropout_probabilities: List[float] = [1. - sum(dropout_probabilities)] + dropout_probabilities
         self.S: int = sensor_positions.shape[0]  # Number of sensors
 
     @abstractmethod
@@ -120,18 +120,4 @@ class Mask(SensorEmbedding):
         
         assert output.shape == data.shape == (N, T, C, H, W)
         return output
-
-
-if __name__ == '__main__':
-    x = torch.arange(50, dtype=torch.float).reshape(1, 1, 1, 5, 10)
-    # self = Voronoi()
-    self = Voronoi()
-    points = torch.tensor([[1, 4], [2, 6], [3, 7]])
-    a = self(x, points)
-    print(a)
-
-    self = Mask()
-    b = self(x, points)
-    print(b)
-
 

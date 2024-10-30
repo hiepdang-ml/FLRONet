@@ -3,45 +3,48 @@ dataset:
   n_fullstate_timeframes_per_chunk: 1
   n_samplings_per_chunk: 1
   resolution: [140, 240]
-  n_sensors: 10
+  n_sensors: 32
   sensor_generator: 'LHS'  # AroundCylinder | LHS
   embedding_generator: 'Voronoi'  # Voronoi | Mask
-  dropout_probabilities: [0.1, 0.05, 0.05]   # [] for no dropout
+  dropout_probabilities: []   # [] for no dropout
   seed: 1
   already_preloaded: true
 
 architecture:
-  branch_net: 'Unet'  # FNO | UNet
+  branch_net: 'FNO'  # FNO | UNet
   n_channels: 2   # fixed for 2d problems
-  embedding_dim: 16
+  embedding_dim: 64
   n_stacked_networks: 2
-  from_checkpoint: null  # set to null to train from scratch
   # FNO-specific configs:
-  n_fno_layers: 2
-  n_hmodes: 12
-  n_wmodes: 24
+  n_fno_layers: 4
+  n_hmodes: 24
+  n_wmodes: 48
 
 training:
+  from_checkpoint: null  # set to null to train from scratch
   train_batch_size: 4
   val_batch_size: 2
-  learning_rate: 1e-3
+  learning_rate: 1e-4
   n_epochs: 100
   patience: 5
   tolerance: 0.
   save_frequency: 1
+  freeze_branchnets: false
+  freeze_trunknets: false
+  freeze_bias: false
 
 evaluate:
-  from_checkpoint: '.checkpoints/flronetfno4.pt'
-  n_dropout_sensors: 2
+  from_checkpoint: 'best_flronetfno/flronetfno22.pt'
+  n_dropout_sensors: 0
   already_preloaded: true
 
 inference:
-  case_dir: 'data/test/case0005'
+  case_dir: 'data/test/case0045'
   sensor_timeframes: [620, 625, 630, 635, 640]
   reconstruction_timeframes: [632]
   sensor_position_path: 'tensors/test/sensor_positions/pos.pt'
   n_dropout_sensors: 2
-  from_checkpoint: '.checkpoints/flronetfno4.pt'
+  from_checkpoint: 'best_flronetfno/flronetfno22.pt'
   # FNO-specific configs:
   # out_resolution: [140, 240]
   # out_resolution: [280, 480]

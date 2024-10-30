@@ -223,6 +223,9 @@ class CFDDataset(Dataset, DatasetMixin):
                     fullstate_timeframes_list.append(fullstate_timeframes[idx].tolist())
                     torch.save(obj=fullstate_timeframes[idx].clone(), f=os.path.join(self.fullstate_timeframes_dest, f'ft{prefix}{suffix}.pt'))
                     torch.save(obj=fullstate_data[idx].clone(), f=os.path.join(self.fullstate_values_dest, f'fv{prefix}{suffix}.pt'))
+                
+                # manual garbage collection to optimize GPU RAM, otherwise likely lead to OutOfMemoryError
+                del fullstate_data, sensor_data
         
         # save self.case_names for self.already_preloaded = True
         assert len(self.case_names) == len(self.sampling_ids) == len(sensor_timeframes_list) == len(fullstate_timeframes_list)

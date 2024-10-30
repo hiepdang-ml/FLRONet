@@ -38,7 +38,7 @@ def main(config: Dict[str, Any]) -> None:
     n_fno_layers: int                           = int(config['architecture']['n_fno_layers'])
     n_hmodes: int                               = int(config['architecture']['n_hmodes'])
     n_wmodes: int                               = int(config['architecture']['n_wmodes'])
-    from_checkpoint: Optional[str]              = config['architecture']['from_checkpoint']
+    from_checkpoint: Optional[str]              = config['training']['from_checkpoint']
     train_batch_size: int                       = int(config['training']['train_batch_size'])
     val_batch_size: int                         = int(config['training']['val_batch_size'])
     learning_rate: float                        = float(config['training']['learning_rate'])
@@ -46,6 +46,9 @@ def main(config: Dict[str, Any]) -> None:
     patience: int                               = int(config['training']['patience'])
     tolerance: int                              = float(config['training']['tolerance'])
     save_frequency: int                         = int(config['training']['save_frequency'])
+    freeze_branchnets: bool                     = bool(config['training']['freeze_branchnets'])
+    freeze_trunknets: bool                      = bool(config['training']['freeze_trunknets'])
+    freeze_bias: bool                           = bool(config['training']['freeze_bias'])
 
     # Instatiate the training datasets
     train_dataset = CFDDataset(
@@ -78,7 +81,7 @@ def main(config: Dict[str, Any]) -> None:
     # Load the model
     if from_checkpoint is not None:
         checkpoint_loader = CheckpointLoader(checkpoint_path=from_checkpoint)
-        net: FLRONetWithFNO = checkpoint_loader.load(scope=globals())[0].cuda()    # ignore optimizer
+        net: FLRONetWithFNO | FLRONetWithUNet = checkpoint_loader.load(scope=globals())[0].cuda()    # ignore optimizer
     else:
         if branch_net.lower() == 'fno':
             net = FLRONetWithFNO(
@@ -93,6 +96,16 @@ def main(config: Dict[str, Any]) -> None:
                 total_timeframes=train_dataset.total_timeframes_per_case,
                 n_stacked_networks=n_stacked_networks,
             ).cuda()
+
+    if freeze_branchnets: 
+        print('Freezed BranchNets')
+        net.freeze_branchnets()
+    if freeze_trunknets: 
+        print('Freezed TrunkNets')
+        net.freeze_trunknets()
+    if freeze_bias: 
+        print('Freezed Bias')
+        net.freeze_bias()
 
     trainer = Trainer(
         net=net, 
