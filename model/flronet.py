@@ -152,7 +152,7 @@ class SpectralConv2d(nn.Module):
         return 1 if x == 0 else 2 ** (x - 1).bit_length()
 
 
-class StackedFNOBranchNet(nn.Module):
+class FNOBranchNet(nn.Module):
 
     def __init__(self, n_channels: int, n_fno_layers: int, n_hmodes: int, n_wmodes: int, embedding_dim: int):
         super().__init__()
@@ -211,7 +211,7 @@ class StackedFNOBranchNet(nn.Module):
         return output
     
 
-class StackedUNetBranchNet(nn.Module):
+class UNetBranchNet(nn.Module):
 
     def __init__(self, n_channels: int, embedding_dim: int):
         super().__init__()
@@ -229,44 +229,67 @@ class StackedUNetBranchNet(nn.Module):
         return output
 
 
-class StackedTrunkNet(nn.Module):
+class SinusoidEmbedding(nn.Module):
 
-    def __init__(self, embedding_dim: int, total_timeframes: int):
+    def __init__(self, embedding_dim: int):
         super().__init__()
-        self.total_timeframes: int = total_timeframes
         self.embedding_dim: int = embedding_dim
 
-        t = torch.arange(total_timeframes, dtype=torch.float, device='cuda').unsqueeze(1)
-        assert t.shape == (total_timeframes, 1)
-        w = 1. / torch.pow(
-            input=10_000, 
-            exponent=torch.arange(start=0, end=embedding_dim, step=2, device='cuda').float() / embedding_dim,
+        # Frequency scaling
+        self.w = 1. / torch.pow(
+            input=torch.tensor(10_000., dtype=torch.float, device='cuda'),
+            exponent=torch.arange(0, embedding_dim, 2, dtype=torch.float, device='cuda') / embedding_dim,
         )
-        assert w.shape == (embedding_dim // 2,)
-        self.sinusoid_pos = torch.zeros(total_timeframes, embedding_dim)
-        self.sinusoid_pos[:, 0::2] = torch.sin(t * w)
-        self.sinusoid_pos[:, 1::2] = torch.cos(t * w)
+        assert self.w.shape == (embedding_dim // 2,)
 
-        self.mlp = nn.Sequential(
-            nn.Linear(in_features=embedding_dim, out_features=embedding_dim),
-            nn.ReLU(),
-            nn.Linear(in_features=embedding_dim, out_features=embedding_dim),
-            nn.ReLU(),
-            nn.Linear(in_features=embedding_dim, out_features=embedding_dim),
+    def forward(self, timeframes: torch.Tensor) -> torch.Tensor:
+        assert timeframes.ndim == 2
+        batch_size, n_timeframes = timeframes.shape
+        timeframes = timeframes.unsqueeze(-1)  # (batch_size, n_timeframes, 1)
+        sinusoid = torch.zeros(*timeframes.shape[:-1], self.embedding_dim, device='cuda')
+        sinusoid[:, :, 0::2] = torch.sin(timeframes * self.w)
+        sinusoid[:, :, 1::2] = torch.cos(timeframes * self.w)
+        assert sinusoid.shape == (batch_size, n_timeframes, self.embedding_dim)
+        return sinusoid
+
+
+class TrunkNet(nn.Module):
+
+    def __init__(self, embedding_dim: int, n_outputs: int):
+        super().__init__()
+        self.embedding_dim: int = embedding_dim
+        self.n_outputs: int = n_outputs
+        self.mlps = nn.ModuleList(
+            modules=[
+                nn.Sequential(
+                    nn.Linear(in_features=embedding_dim, out_features=embedding_dim),
+                    nn.ReLU(),
+                    nn.Linear(in_features=embedding_dim, out_features=embedding_dim),
+                    nn.ReLU(),
+                    nn.Linear(in_features=embedding_dim, out_features=embedding_dim),
+                )
+                for _ in range(n_outputs)
+            ]
         )
 
-    def forward(self, fullstate_timeframes: torch.LongTensor, sensor_timeframes: torch.LongTensor) -> torch.Tensor:
-        assert fullstate_timeframes.ndim == sensor_timeframes.ndim == 2
-        batch_size, n_fullstate_timeframes = fullstate_timeframes.shape
-        n_sensor_timeframes: int = sensor_timeframes.shape[1]
-        # compute temporal embeddings
-        fullstate_time_embedding: torch.Tensor = self.mlp(self.sinusoid_pos[fullstate_timeframes])
-        assert fullstate_time_embedding.shape == (batch_size, n_fullstate_timeframes, self.embedding_dim)
-        sensor_time_embedding: torch.Tensor = self.mlp(self.sinusoid_pos[sensor_timeframes])
-        assert sensor_time_embedding.shape == (batch_size, n_sensor_timeframes, self.embedding_dim)
-        output: torch.Tensor = torch.einsum('nse,nfe->nsf', sensor_time_embedding, fullstate_time_embedding)
-        assert output.shape == (batch_size, n_sensor_timeframes, n_fullstate_timeframes)
-        return output
+    def forward(self, fullstate_time_embeddings: torch.Tensor, sensor_time_embeddings: torch.Tensor) -> List[torch.Tensor]:
+        assert fullstate_time_embeddings.ndim == sensor_time_embeddings.ndim == 3
+        assert fullstate_time_embeddings.shape[0] == sensor_time_embeddings.shape[0]
+        assert fullstate_time_embeddings.shape[2] == sensor_time_embeddings.shape[2] == self.embedding_dim
+        batch_size: int = fullstate_time_embeddings.shape[0]
+        n_fullstate_timeframes: int = fullstate_time_embeddings.shape[1]
+        n_sensor_timeframes: int = sensor_time_embeddings.shape[1]
+
+        outputs: List[torch.Tensor] = []
+        for i in range(self.n_outputs):
+            mlp: nn.Module = self.mlps[i]
+            fullstate_time_embeddings = mlp(fullstate_time_embeddings)
+            sensor_time_embeddings = mlp(sensor_time_embeddings)
+            output: torch.Tensor = torch.einsum('nse,nfe->nsf', sensor_time_embeddings, fullstate_time_embeddings)
+            assert output.shape == (batch_size, n_sensor_timeframes, n_fullstate_timeframes)
+            outputs.append(output)
+
+        return outputs
 
 
 class FLRONetMixin:
@@ -303,18 +326,14 @@ class FLRONetWithFNO(nn.Module, FLRONetMixin):
 
         self.branch_nets = nn.ModuleList(
             modules=[
-                StackedFNOBranchNet(
+                FNOBranchNet(
                     n_channels=n_channels, n_fno_layers=n_fno_layers, n_hmodes=n_hmodes, n_wmodes=n_wmodes, embedding_dim=embedding_dim,
                 )
                 for _ in range(n_stacked_networks)
             ]
         )
-        self.trunk_nets = nn.ModuleList(
-            modules=[
-                StackedTrunkNet(embedding_dim=embedding_dim, total_timeframes=total_timeframes)
-                for _ in range(n_stacked_networks)
-            ]
-        )
+        self.sinusoid_embedding = SinusoidEmbedding(embedding_dim=embedding_dim)
+        self.trunk_net = TrunkNet(embedding_dim=embedding_dim, n_outputs=n_stacked_networks)
         self.bias = nn.Parameter(data=torch.randn(n_channels, 1, 1))
 
     def forward(
@@ -334,23 +353,29 @@ class FLRONetWithFNO(nn.Module, FLRONetMixin):
         out_H, out_W = out_resolution
         assert sensor_values.shape == (batch_size, n_sensor_timeframes, self.n_channels, in_H, in_W)
         
+        # TrunkNet
+        fullstate_time_embeddings: torch.Tensor = self.sinusoid_embedding(timeframes=fullstate_timeframes)
+        sensor_time_embeddings: torch.Tensor = self.sinusoid_embedding(timeframes=sensor_timeframes)
+        trunk_outputs: List[torch.Tensor] = self.trunk_net(
+            fullstate_time_embeddings=fullstate_time_embeddings, sensor_time_embeddings=sensor_time_embeddings
+        )
+        assert len(trunk_outputs) == self.n_stacked_networks
+
+        # BranchNet
+        branch_outputs: List[torch.Tensor] = []
+        for i in range(self.n_stacked_networks):
+            branch_net: FNOBranchNet | UNetBranchNet = self.branch_nets[i]
+            branch_output: torch.Tensor = branch_net(sensor_value=sensor_values, out_resolution=out_resolution)
+            assert branch_output.shape == (batch_size, n_sensor_timeframes, self.n_channels, out_H, out_W)
+            branch_outputs.append(branch_output)
+
+        # Fusing (Product)
         output: torch.Tensor = torch.zeros(
             batch_size, n_fullstate_timeframes, self.n_channels, out_H, out_W,
             device='cuda'
         )
         for i in range(self.n_stacked_networks):
-            # branch
-            branch_net: StackedFNOBranchNet | StackedUNetBranchNet = self.branch_nets[i]
-            branch_output: torch.Tensor = branch_net(sensor_value=sensor_values, out_resolution=out_resolution)
-            assert branch_output.shape == (batch_size, n_sensor_timeframes, self.n_channels, out_H, out_W)
-            # trunk
-            trunk_net: StackedTrunkNet = self.trunk_nets[i]
-            trunk_output: torch.Tensor = trunk_net(
-                fullstate_timeframes=fullstate_timeframes, 
-                sensor_timeframes=sensor_timeframes,
-            )
-            assert trunk_output.shape == (batch_size, n_sensor_timeframes, n_fullstate_timeframes)
-            output += torch.einsum('nschw,nsf->nfchw', branch_output, trunk_output)
+            output += torch.einsum('nschw,nsf->nfchw', branch_outputs[i], trunk_outputs[i])
 
         return output + self.bias
 
@@ -366,13 +391,13 @@ class FLRONetWithUNet(nn.Module, FLRONetMixin):
 
         self.branch_nets = nn.ModuleList(
             modules=[
-                StackedUNetBranchNet(n_channels=n_channels, embedding_dim=embedding_dim)
+                UNetBranchNet(n_channels=n_channels, embedding_dim=embedding_dim)
                 for _ in range(n_stacked_networks)
             ]
         )
         self.trunk_nets = nn.ModuleList(
             modules=[
-                StackedTrunkNet(embedding_dim=embedding_dim, total_timeframes=total_timeframes)
+                TrunkNet(embedding_dim=embedding_dim, total_timeframes=total_timeframes)
                 for _ in range(n_stacked_networks)
             ]
         )
@@ -399,11 +424,11 @@ class FLRONetWithUNet(nn.Module, FLRONetMixin):
         )
         for i in range(self.n_stacked_networks):
             # branch
-            branch_net: StackedFNOBranchNet | FLRONetWithUNet = self.branch_nets[i]
+            branch_net: FNOBranchNet | FLRONetWithUNet = self.branch_nets[i]
             branch_output: torch.Tensor = branch_net(sensor_value=sensor_values)
             assert branch_output.shape == (batch_size, n_sensor_timeframes, self.n_channels, H, W)
             # trunk
-            trunk_net: StackedTrunkNet = self.trunk_nets[i]
+            trunk_net: TrunkNet = self.trunk_nets[i]
             trunk_output: torch.Tensor = trunk_net(
                 fullstate_timeframes=fullstate_timeframes, 
                 sensor_timeframes=sensor_timeframes,
