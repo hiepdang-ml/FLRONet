@@ -34,7 +34,7 @@ training:
   freeze_bias: false
 
 evaluate:
-  from_checkpoint: 'best_flronetfno/flronetfno22.pt'
+  from_checkpoint: 'best_flronetfno/flronetfno11.pt'
   n_dropout_sensors: 0
   already_preloaded: true
 
@@ -44,10 +44,10 @@ inference:
   reconstruction_timeframes: [632]
   sensor_position_path: 'tensors/test/sensor_positions/pos.pt'
   n_dropout_sensors: 2
-  from_checkpoint: 'best_flronetfno/flronetfno22.pt'
+  from_checkpoint: 'best_flronetfno/flronetfno11.pt'
   # FNO-specific configs:
-  # out_resolution: [140, 240]
+  out_resolution: [140, 240]
   # out_resolution: [280, 480]
-  out_resolution: [560, 960]
+  # out_resolution: [560, 960]
   # out_resolution: [1120, 1920]
 
