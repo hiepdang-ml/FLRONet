@@ -6,9 +6,9 @@ dataset:
   n_sensors: 32
   sensor_generator: 'LHS'  # AroundCylinder | LHS
   embedding_generator: 'Voronoi'  # Voronoi | Mask
-  dropout_probabilities: []   # [] for no dropout
+  dropout_probabilities: [0.05, 0.04, 0.03, 0.02, 0.01]   # [] for no dropout
   seed: 1
-  already_preloaded: true
+  already_preloaded: false
 
 architecture:
   branch_net: 'FNO'  # FNO | UNet
@@ -21,7 +21,7 @@ architecture:
   n_wmodes: 48
 
 training:
-  from_checkpoint: null  # set to null to train from scratch
+  from_checkpoint: 'best_flronetfno/flronetfno13.pt'  # set to null to train from scratch
   train_batch_size: 4
   val_batch_size: 2
   learning_rate: 1e-4
@@ -34,17 +34,17 @@ training:
   freeze_bias: false
 
 evaluate:
-  from_checkpoint: 'best_flronetfno/flronetfno11.pt'
-  n_dropout_sensors: 0
-  already_preloaded: true
+  from_checkpoint: 'best_flronetfno/flronetfno13.pt'
+  n_dropout_sensors: 10
+  already_preloaded: false
 
 inference:
   case_dir: 'data/test/case0045'
   sensor_timeframes: [620, 625, 630, 635, 640]
-  reconstruction_timeframes: [632]
+  reconstruction_timeframes: [632.5]
   sensor_position_path: 'tensors/test/sensor_positions/pos.pt'
-  n_dropout_sensors: 2
-  from_checkpoint: 'best_flronetfno/flronetfno11.pt'
+  n_dropout_sensors: 3
+  from_checkpoint: 'best_flronetfno/flronetfno13.pt'
   # FNO-specific configs:
   out_resolution: [140, 240]
   # out_resolution: [280, 480]

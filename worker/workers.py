@@ -216,7 +216,8 @@ class Predictor(Worker, DatasetMixin):
 
     ):
         self.net = net.cuda()
-        self.metric = nn.MSELoss(reduction='sum')
+        self.rmse = nn.MSELoss(reduction='sum')
+        self.mae = nn.L1Loss(reduction='sum')
 
     def predict_from_scratch(
         self, 
@@ -238,7 +239,7 @@ class Predictor(Worker, DatasetMixin):
         in_H, in_W = in_resolution
         
         # prepare reconstruction timeframes
-        reconstruction_timeframes: torch.Tensor = torch.tensor(reconstruction_timeframes, dtype=torch.int, device='cuda')
+        reconstruction_timeframes: torch.Tensor = torch.tensor(reconstruction_timeframes, dtype=torch.float, device='cuda')
         reconstruction_timeframes = reconstruction_timeframes.unsqueeze(dim=0)
         # prepare sensor timeframes
         sensor_timeframes: torch.Tensor = torch.tensor(sensor_timeframes, dtype=torch.int, device='cuda')
@@ -302,14 +303,14 @@ class Predictor(Worker, DatasetMixin):
         case_name: str = os.path.basename(case_dir)
         for frame_idx in tqdm(range(reconstruction_frames.shape[0]), desc=f'{case_name}: '):
             reconstruction_frame: torch.Tensor = reconstruction_frames[frame_idx]
-            at_timeframe = int(reconstruction_timeframes[frame_idx].item())
+            at_timeframe = float(reconstruction_timeframes[frame_idx].item())
             if isinstance(self.net, FLRONetWithUNet):
                 plot_frame(
                     sensor_positions=original_sensor_positions,
                     reconstruction_frame=reconstruction_frame,
                     reduction=lambda x: compute_velocity_field(x, dim=0),
-                    title=f'{case_name.upper()} t={at_timeframe * 0.001:.3f}s. active sensors: {str(n_active_sensors).zfill(2)}/{str(n_sensors).zfill(2)}',
-                    filename=f'{case_name.lower()}_f{str(at_timeframe).zfill(3)}_{in_H}x{in_W}',
+                    title=f'{case_name.upper()} t={at_timeframe * 0.001:.6f}s. active sensors: {str(n_active_sensors).zfill(2)}/{str(n_sensors).zfill(2)}',
+                    filename=f'{case_name.lower()}_f{str(at_timeframe).replace(".","")}_{in_H}x{in_W}',
                 )
             else:
                 new_sensor_position: torch.Tensor = torch.zeros_like(original_sensor_positions, dtype=torch.float)
@@ -320,8 +321,8 @@ class Predictor(Worker, DatasetMixin):
                     sensor_positions=new_sensor_position,
                     reconstruction_frame=reconstruction_frame,
                     reduction=lambda x: compute_velocity_field(x, dim=0),
-                    title=f'{case_name.upper()} t={at_timeframe * 0.001:.3f}s. active sensors: {str(n_active_sensors).zfill(2)}/{str(n_sensors).zfill(2)}',
-                    filename=f'{case_name.lower()}_f{str(at_timeframe).zfill(3)}_d{n_dropout_sensors}_{out_H}x{out_W}'
+                    title=f'{case_name.upper()} t={at_timeframe * 0.001:.6f}s. active sensors: {str(n_active_sensors).zfill(2)}/{str(n_sensors).zfill(2)}',
+                    filename=f'{case_name.lower()}_f{str(at_timeframe).replace(".","")}_d{n_dropout_sensors}_{out_H}x{out_W}'
                 )
 
 
@@ -332,7 +333,8 @@ class Predictor(Worker, DatasetMixin):
         n_sensors: int = dataset.sensor_positions.shape[0]
         n_dropout_sensors: int = len(dataset.dropout_probabilities)
         n_active_sensors: int = n_sensors - n_dropout_sensors
-        metrics: List[float] = []
+        rmse_values: List[float] = []
+        mae_values: List[float] = []
         with torch.no_grad():
             for sensor_timeframes, sensor_frames, fullstate_timeframes, fullstate_frames, case_names, sampling_ids in tqdm(dataloader):
                 # Data validation
@@ -361,12 +363,17 @@ class Predictor(Worker, DatasetMixin):
                 for frame_idx in range(fullstate_timeframes.shape[0]):
                     reconstruction_frame: torch.Tensor = reconstruction_frames[frame_idx]
                     fullstate_frame: torch.Tensor = fullstate_frames[frame_idx]
-                    frame_total_mse: torch.Tensor = self.metric(
+                    frame_total_mse: torch.Tensor = self.rmse(
                         input=reconstruction_frame.unsqueeze(0).unsqueeze(0), 
                         target=fullstate_frame.unsqueeze(0).unsqueeze(0),
                     )
                     frame_mean_mse: float = frame_total_mse.item() / fullstate_frame.numel()
                     frame_mean_rmse: float = frame_mean_mse ** 0.5
+                    frame_total_mae: torch.Tensro = self.mae(
+                        input=reconstruction_frame.unsqueeze(0).unsqueeze(0), 
+                        target=fullstate_frame.unsqueeze(0).unsqueeze(0),
+                    )
+                    frame_mean_mae: float = frame_total_mae.item() / fullstate_frame.numel()
                     at_timeframe = int(fullstate_timeframes[frame_idx].item())
                     case_name: str = case_names[frame_idx]
                     sampling_id: int = sampling_ids[frame_idx]
@@ -379,10 +386,11 @@ class Predictor(Worker, DatasetMixin):
                             f'{case_name.lower()}s{sampling_id}: '
                             f't={at_timeframe * 0.001:.3f}s, '
                             f'active sensors: {str(n_active_sensors).zfill(2)}/{str(n_sensors).zfill(2)}, '
-                            f'RMSE: {frame_mean_rmse:.3f}'
+                            f'RMSE: {frame_mean_rmse:.3f}, MAE: {frame_mean_mae:.3f}'
                         ),
                         filename=f'{case_name.lower()}s{sampling_id}_f{str(at_timeframe).zfill(3)}_d{n_dropout_sensors}_{trained_H}x{trained_W}'
                     )
-                    metrics.append(frame_mean_rmse)
+                    rmse_values.append(frame_mean_rmse)
+                    mae_values.append(frame_mean_mae)
 
-        return sum(metrics) / len(metrics)
+        return sum(rmse_values) / len(rmse_values), sum(mae_values) / len(mae_values)

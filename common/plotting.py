@@ -40,6 +40,11 @@ def plot_frame(
         frames_to_plot.append(reconstruction_frame)
         chart_titles.append(f"Reconstruction")
 
+    if reconstruction_frame is not None and fullstate_frame is not None:
+        mae_frame = torch.abs(reconstruction_frame - fullstate_frame)
+        frames_to_plot.append(mae_frame)
+        chart_titles.append(f"Avg. MAE: {mae_frame.mean().item():.3f}")
+
     frame_shapes = [frame.shape for frame in frames_to_plot]
     assert all(shape == frame_shapes[0] for shape in frame_shapes), "All provided frames must have the same shape."
 
