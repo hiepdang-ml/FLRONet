@@ -2,11 +2,9 @@ import argparse
 from typing import Tuple, List, Dict, Any
 
 import yaml
-import torch
 from torch.optim import Optimizer, Adam
 
-from cfd.embedding import Mask, Voronoi
-from model.flronet import FLRONetWithFNO, FLRONetWithUNet
+from model import FLRONet, UNet
 from common.training import CheckpointLoader
 from worker import Predictor
 
@@ -33,11 +31,11 @@ def main(config: Dict[str, Any]) -> None:
     # Load the model
     print(f'Using: {from_checkpoint}')
     checkpoint_loader = CheckpointLoader(checkpoint_path=from_checkpoint)
-    net: FLRONetWithFNO | FLRONetWithUNet = checkpoint_loader.load(scope=globals())[0]
+    net: FLRONet | UNet = checkpoint_loader.load(scope=globals())
     
     # Make prediction
     predictor = Predictor(net=net)
-    if isinstance(net, FLRONetWithUNet):
+    if isinstance(net, UNet):
         predictor.predict_from_scratch(
             case_dir=case_dir,
             sensor_timeframes=sensor_timeframes,
@@ -61,7 +59,7 @@ def main(config: Dict[str, Any]) -> None:
 
 if __name__ == "__main__":
     # Initialize the argument parser
-    parser = argparse.ArgumentParser(description='Reconstruct the fullstate at any frames from sensor measurements')
+    parser = argparse.ArgumentParser()
     parser.add_argument('--config', type=str, required=True, help='Configuration file name.')
     args: argparse.Namespace = parser.parse_args()
     # Load the configuration

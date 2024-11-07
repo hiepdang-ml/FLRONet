@@ -35,18 +35,31 @@ class DatasetMixin:
         assert sensor_timeframes.shape == (n_chunks, len(self.init_sensor_timeframes))
         return sensor_timeframes.int()
 
-    def prepare_fullstate_timeframes(self, seed: int) -> torch.IntTensor:
+    def prepare_fullstate_timeframes(self, seed: int | None = None, init_fullstate_timeframe: int = -1) -> torch.IntTensor:
+        assert seed is not None or init_fullstate_timeframe != -1, 'must be either deterministic or random'
         n_chunks = self.total_timeframes_per_case - max(self.init_sensor_timeframes)
-        fullstate_timeframes: torch.Tensor = torch.empty((n_chunks, self.n_fullstate_timeframes_per_chunk), dtype=torch.int, device='cuda')
-        for chunk_idx in range(n_chunks):
-            torch.random.manual_seed(seed + chunk_idx)
-            random_init_timeframes: torch.Tensor = torch.randperm(
-                n=max(self.init_sensor_timeframes), device='cuda'
-            )[:self.n_fullstate_timeframes_per_chunk].sort()[0]
-            fullstate_timeframes[chunk_idx] = random_init_timeframes + chunk_idx
+        if seed is None and init_fullstate_timeframe != -1:    # deterministic
+            assert self.n_fullstate_timeframes_per_chunk == 1, (
+                f'n_fullstate_timeframes_per_chunk should be logically set to 1 when target frames are generated deterministically '
+                f'(otherwise it contains overlapping frames), '
+                f'get: {self.n_fullstate_timeframes_per_chunk}'
+            )
+            fullstate_timeframes: torch.Tensor = torch.arange(n_chunks, device='cuda').unsqueeze(1) + init_fullstate_timeframe
+            assert fullstate_timeframes.shape == (n_chunks, self.n_fullstate_timeframes_per_chunk)
+            return fullstate_timeframes
+        
+        else:
+            assert seed is not None, 'seed must be specified when target frames are generated randomly'
+            fullstate_timeframes: torch.Tensor = torch.empty((n_chunks, self.n_fullstate_timeframes_per_chunk), dtype=torch.int, device='cuda')
+            for chunk_idx in range(n_chunks):
+                torch.random.manual_seed(seed + chunk_idx)
+                random_init_timeframes: torch.Tensor = torch.randperm(
+                    n=max(self.init_sensor_timeframes), device='cuda'
+                )[:self.n_fullstate_timeframes_per_chunk].sort()[0]
+                fullstate_timeframes[chunk_idx] = random_init_timeframes + chunk_idx
 
-        assert fullstate_timeframes.shape == (n_chunks, self.n_fullstate_timeframes_per_chunk)
-        return fullstate_timeframes
+            assert fullstate_timeframes.shape == (n_chunks, self.n_fullstate_timeframes_per_chunk)
+            return fullstate_timeframes
 
 
 class CFDDataset(Dataset, DatasetMixin):
@@ -62,6 +75,7 @@ class CFDDataset(Dataset, DatasetMixin):
         dropout_probabilities: List[float],
         sensor_generator: Literal['LHS', 'AroundCylinder'], 
         embedding_generator: Literal['Voronoi', 'Mask'],
+        init_fullstate_timeframe: int | None,
         seed: int,
         already_preloaded: bool
     ) -> None:
@@ -75,8 +89,10 @@ class CFDDataset(Dataset, DatasetMixin):
         self.resolution: Tuple[int, int] = resolution
         self.n_sensors: int = n_sensors
         self.dropout_probabilities: List[float] = dropout_probabilities
+        self.init_fullstate_timeframe: int | None = init_fullstate_timeframe
         self.seed: int = seed
         self.already_preloaded: bool = already_preloaded
+        self.is_random_fullstate_frames: bool = init_fullstate_timeframe is None
 
         self.H, self.W = resolution
         self.n_sensor_timeframes_per_chunk: int = len(init_sensor_timeframes)
@@ -91,6 +107,20 @@ class CFDDataset(Dataset, DatasetMixin):
         self.metadata_dest: str = os.path.join(self.dest, 'metadata')
 
         if not self.already_preloaded:
+            if init_fullstate_timeframe is not None:
+                # NOTE: deterministically generate fullstate frames
+                if n_fullstate_timeframes_per_chunk != 1:
+                    raise ValueError(
+                        f'n_fullstate_timeframes_per_chunk should be logically set to 1 when sensors are generated deterministically, '
+                        f'(otherwise it contains overlapping frames), '
+                        f'get: {n_fullstate_timeframes_per_chunk}'
+                    )
+                if n_samplings_per_chunk != 1:
+                    raise ValueError(
+                        f'n_samplings_per_chunk should be logically set to 1 when sensors are generated deterministically, '
+                        f'get: {n_samplings_per_chunk}'
+                    )
+
             if sensor_generator == 'LHS':
                 self.sensor_generator = LHS(n_sensors=n_sensors)
                 self.sensor_generator.seed = seed
@@ -195,7 +225,15 @@ class CFDDataset(Dataset, DatasetMixin):
             sensor_frame_data = sensor_frame_data.reshape(n_chunks, self.n_sensor_timeframes_per_chunk, 2, self.H, self.W)
             for sampling_id in range(self.n_samplings_per_chunk):
                 # fullstate data
-                fullstate_timeframes: torch.Tensor = self.prepare_fullstate_timeframes(seed=self.seed + case_id + sampling_id)
+                if self.is_random_fullstate_frames:
+                    print('Randomly generating fullstate frames')
+                    fullstate_timeframes: torch.Tensor = self.prepare_fullstate_timeframes(seed=self.seed + case_id + sampling_id)
+                else:
+                    print('Deterministically generating fullstate frames')
+                    fullstate_timeframes: torch.Tensor = self.prepare_fullstate_timeframes(
+                        init_fullstate_timeframe=self.init_fullstate_timeframe
+                    )
+
                 fullstate_data: torch.Tensor = data[fullstate_timeframes]
                 # resize fullstate frames
                 fullstate_data = F.interpolate(input=fullstate_data.flatten(0, 1), size=self.resolution, mode='bicubic')

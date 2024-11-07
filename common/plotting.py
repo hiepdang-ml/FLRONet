@@ -29,28 +29,27 @@ def plot_frame(
     frames_to_plot = []
     chart_titles = []
     if sensor_frame is not None:
+        sensor_frame = reduction(sensor_frame)
         frames_to_plot.append(sensor_frame)
         chart_titles.append(f"Sensor Value")
         
-    if fullstate_frame is not None:
-        frames_to_plot.append(fullstate_frame)
-        chart_titles.append(f"Full State")
-        
     if reconstruction_frame is not None:
+        reconstruction_frame = reduction(reconstruction_frame)
         frames_to_plot.append(reconstruction_frame)
         chart_titles.append(f"Reconstruction")
 
+    if fullstate_frame is not None:
+        fullstate_frame = reduction(fullstate_frame)
+        frames_to_plot.append(fullstate_frame)
+        chart_titles.append(f"Full State")
+
     if reconstruction_frame is not None and fullstate_frame is not None:
-        mae_frame = torch.abs(reconstruction_frame - fullstate_frame)
-        frames_to_plot.append(mae_frame)
-        chart_titles.append(f"Avg. MAE: {mae_frame.mean().item():.3f}")
+        error_frame = reconstruction_frame - fullstate_frame
+        frames_to_plot.append(error_frame)
+        chart_titles.append(f"Error")
 
     frame_shapes = [frame.shape for frame in frames_to_plot]
     assert all(shape == frame_shapes[0] for shape in frame_shapes), "All provided frames must have the same shape."
-
-    # Process the reduction and resolution
-    if reduction is not None:
-        frames_to_plot = [reduction(frame) for frame in frames_to_plot]
 
     assert all(frame.shape[0] == 1 for frame in frames_to_plot), (
         'All physical fields must be aggregated to a single field for visualization.'
@@ -74,20 +73,21 @@ def plot_frame(
     else:
         max_value: float = max([frame.max().item() for frame in frames_to_plot])
 
-    norm = matplotlib.colors.Normalize(vmin=0, vmax=max_value)
-    # norm = matplotlib.colors.Normalize(vmin=0, vmax=2.5)
+    max_value *= 0.8    # for better coloring
     for frame, ax, chart_title in zip(frames_to_plot, axs, chart_titles):
-        im = ax.imshow(
-            frame.squeeze(dim=0),
-            origin="lower",
-            norm=norm,
-            cmap='jet',
-        )
+        if chart_title == 'Error':
+            norm = matplotlib.colors.Normalize(vmin=-max_value, vmax=max_value)
+        else:
+            # norm = matplotlib.colors.Normalize(vmin=0, vmax=max_value)
+            norm = matplotlib.colors.Normalize(vmin=0, vmax=8.)
+
+        im = ax.imshow(frame.squeeze(dim=0), origin="lower", norm=norm, cmap='seismic')
         cbar = ax.figure.colorbar(im, ax=ax, orientation='vertical', fraction=0.046, pad=0.04)
         cbar.ax.tick_params(labelsize=10)
 
         if sensor_positions is not None:
             for sensor_x, sensor_y in sensor_positions:
+                # mark sensors
                 ax.add_patch(
                     patches.Rectangle(
                         xy=(sensor_y, sensor_x),
@@ -101,7 +101,7 @@ def plot_frame(
 
     fig.suptitle(title, fontsize=15)
     # Finalize and save the figure
-    fig.tight_layout()
+    fig.tight_layout(rect=[0, 0, 1, 0.99])
     destination_directory = './plots'
     os.makedirs(destination_directory, exist_ok=True)
     timestamp: dt.datetime = dt.datetime.now()
@@ -110,32 +110,5 @@ def plot_frame(
 
     fig.savefig(os.path.join(destination_directory, f'{filename}.png'))
     plt.close(fig)
-
-
-
-if __name__ == '__main__':
-    from cfd.dataset import CFDDataset
-    from common.functional import compute_velocity_field
-
-    dataset = CFDDataset(
-        root='./data/test',
-        init_sensor_timeframes=[0, 50, 100],
-        n_fullstate_timeframes_per_chunk=1,
-        n_samplings_per_chunk=1,
-        resolution=(140, 240),
-        n_sensors=5,
-        dropout_probabilities=[0., 1.,],
-        sensor_generator='LHS', 
-        embedding_generator='Mask',
-        seed=1,
-        already_preloaded=False,
-    )
-
-    sensor_timeframe_tensor, sensor_tensor, fullstate_timeframe_tensor, fullstate_tensor, case_name, sampling_id = dataset[0]
-    plot_frame(
-        sensor_positions=dataset.sensor_positions,
-        sensor_frame=sensor_tensor[0],
-        reduction=lambda x: compute_velocity_field(x, dim=0),
-    )
 
 

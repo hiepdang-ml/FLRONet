@@ -11,7 +11,6 @@ import inspect
 
 import torch
 import torch.nn as nn
-from torch.optim import Optimizer
 
 
 class Accumulator:
@@ -208,10 +207,7 @@ class Logger:
 
     This class provides methods to log messages to a file and the console. 
     """
-    def __init__(
-        self, 
-        logfile: str = f".logs/{dt.datetime.now().strftime('%Y%m%d%H%M%S')}"
-    ) -> None:
+    def __init__(self, logfile: str = f".logs/{dt.datetime.now().strftime('%Y%m%d%H%M%S')}") -> None:
     
         """
         Initialize the logger.
@@ -262,21 +258,15 @@ class Logger:
 
 class CheckpointSaver:
     """
-    A class used to save PyTorch model and optimizer checkpoints.
+    A class used to save PyTorch model checkpoints.
     """
-    def __init__(
-        self, 
-        model: nn.Module, 
-        optimizer: Optimizer,
-        dirpath: str,
-    ) -> None:
+    def __init__(self, model: nn.Module, dirpath: str) -> None:
         """
         Initialize the CheckPointSaver.
 
         Parameters:
-            - dirpath (os.PathLike): The directory where the checkpoints to save.
             - model (nn.Module): The class object of the model
-            - optimizer_classname (Optimizer): The class object of the optimizer
+            - dirpath (os.PathLike): The directory where the checkpoints to save.
         """
         self.dirpath: pathlib.Path = pathlib.Path(dirpath)
         # For model reconstruction
@@ -285,23 +275,15 @@ class CheckpointSaver:
         self.model_kwargs: Dict[str, Any] = {
             p: getattr(model, p) for p in signature.parameters.keys() if p != 'self'
         }
-        # For optimizer reconstruction
-        self.optimizer_classname: str = optimizer.__class__.__name__
         # ensure the dirpath exists in the file system
         os.makedirs(name=self.dirpath, exist_ok=True)
 
-    def save(
-        self, 
-        model_states: Dict[str, Any],
-        optimizer_states: Dict[str, Any],
-        filename: str
-    ) -> None:
+    def save(self, model_states: Dict[str, Any], filename: str) -> None:
         """
         Save checkpoint to a .pt file.
 
         Parameters:
             - model_states (Dict[str, torch.Tensor]): The output of model.state_dict()
-            - optimizer_states (Dict[str, Any]): The output of optimizer.state_dict()
             - filename (str): the checkpoint file name
         """
         torch.save(
@@ -311,10 +293,6 @@ class CheckpointSaver:
                     'kwargs'    : self.model_kwargs,
                     'states'    : copy.deepcopy(model_states),
                 },
-                'optimizer': {
-                    'classname' : self.optimizer_classname,
-                    'states'    : copy.deepcopy(optimizer_states),
-                }
             },
             f=os.path.join(self.dirpath, filename)
         )
@@ -322,7 +300,7 @@ class CheckpointSaver:
 
 class CheckpointLoader:
     """
-    A class used to load PyTorch model and optimizer checkpoints.
+    A class used to load PyTorch model checkpoints.
     """
     def __init__(self, checkpoint_path: str) -> None:
         """
@@ -337,21 +315,18 @@ class CheckpointLoader:
         # Model metadata
         self.model_classname: str = self.__checkpoint['model']['classname']
         self.model_kwargs: Dict[str, Any] = self.__checkpoint['model']['kwargs']
-        
-        # Optimizer metadata
-        self.optimizer_classname: str = self.__checkpoint['optimizer']['classname']
 
     def load(
         self, 
         scope: Dict[str, Any], 
         ignored_modules: List[str] = [], 
         **overrided_params: Dict[str, Any]
-    ) -> Tuple[nn.Module, Optimizer]:
+    ) -> nn.Module:
         """
-        Load the model and optimizer from the checkpoint.
+        Load the model from the checkpoint.
 
         Parameters:
-            - scope (Dict[str, Any]): The namespace to look up the model and optimizer object. 
+            - scope (Dict[str, Any]): The namespace to look up the model object. 
                 It's typically the dictionary output of `globals()` or `locals()`
             - ignored_modules (List[str]): names of modules that are excluded from loading.
                 Default is []
@@ -359,7 +334,7 @@ class CheckpointLoader:
                 Default is {}, which means keeping the original model parameters unchanged
         
         Returns:
-            - Tuple[nn.Module, Optimizer]: The model and optimizer loaded from the checkpoint.
+            - nn.Module: The model loaded from the checkpoint.
         """
         # Check caller's namespace for model object
         if self.model_classname not in scope.keys():
@@ -367,22 +342,15 @@ class CheckpointLoader:
                 f'{self.model_classname} is not found in the current namespace, you might need to import it first.'
             )
         
-        # Check caller's namespace for optimizer object
-        if self.optimizer_classname not in scope.keys():
-            raise ImportError(
-                f'{self.optimizer_classname} is not found in the current namespace, you might need to import it first.'
-            )
-        
-        # Instantiate model and optimizer
+        # Instantiate model
         if overrided_params:
             print({'Original': self.model_kwargs, 'Changed params': overrided_params})
             if input('Enter "yes" to confirm new model parameters: ').lower() == 'yes':
                 self.model_kwargs.update(overrided_params)
             else:
                 sys.exit()
-
+        print(self.model_kwargs)
         model: nn.Module = eval(self.model_classname, scope)(**self.model_kwargs)
-        optimizer: Optimizer = eval(self.optimizer_classname, scope)(params=model.parameters())
 
         # Load model from model state_dict and check for compatibility
         model_states: Dict[str, Any] = self.__checkpoint['model']['states']
@@ -390,7 +358,6 @@ class CheckpointLoader:
             model_states = {k: v for k, v in model_states.items() if not k.startswith(ignored_module)}
 
         model_incompatible_keys: NamedTuple = model.load_state_dict(model_states, strict=False)   # inplace update
-        print(model_incompatible_keys)
         if model_incompatible_keys.missing_keys:  # List[str]
             warnings.warn(
                 f'Missing keys from the loaded model checkpoint: {model_incompatible_keys.missing_keys}', 
@@ -402,7 +369,4 @@ class CheckpointLoader:
                 category=UserWarning
             )
         
-        # Load optimizer from optimizer state_dict, it's always compatible
-        optimizer_states: Dict[str, Any] = self.__checkpoint['optimizer']['states']
-        optimizer.load_state_dict(optimizer_states) # `load_state_dict` of optimizers always returns None, inplace update
-        return model, optimizer
+        return model

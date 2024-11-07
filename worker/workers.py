@@ -14,7 +14,8 @@ from torch.amp import autocast, GradScaler
 from common.training import Accumulator, EarlyStopping, Timer, Logger, CheckpointSaver
 from cfd.dataset import CFDDataset, DatasetMixin
 from cfd.embedding import Voronoi, Mask
-from model import FLRONetWithFNO, FLRONetWithUNet
+from model import FLRONet
+from model import UNet
 from common.plotting import plot_frame
 from common.functional import compute_velocity_field
 
@@ -46,7 +47,7 @@ class Trainer(Worker):
 
     def __init__(
         self, 
-        net: FLRONetWithFNO,
+        net: FLRONet | UNet,
         lr: float,
         train_dataset: CFDDataset,
         val_dataset: CFDDataset,
@@ -65,9 +66,9 @@ class Trainer(Worker):
 
         self.grad_scaler = GradScaler(device="cuda")
         if torch.cuda.device_count() > 1:
-            self.net: FLRONetWithFNO | FLRONetWithUNet = nn.DataParallel(net).cuda()
+            self.net: FLRONet | UNet = nn.DataParallel(net).cuda()
         elif torch.cuda.device_count() == 1:
-            self.net: FLRONetWithFNO | FLRONetWithUNet = net.cuda()
+            self.net: FLRONet | UNet = net.cuda()
         else:
             raise ValueError('No GPUs are found in the system')
         
@@ -86,12 +87,8 @@ class Trainer(Worker):
         early_stopping = EarlyStopping(patience, tolerance)
         timer = Timer()
         logger = Logger()
-        checkpoint_saver = CheckpointSaver(
-            model=self.net,
-            optimizer=self.optimizer,
-            dirpath=checkpoint_path,
-        )
-        checkpoint_prefix: str = 'flronetfno' if isinstance(self.net, FLRONetWithFNO) else 'flronetunet'
+        checkpoint_saver = CheckpointSaver(model=self.net, dirpath=checkpoint_path)
+        checkpoint_prefix: str = 'flronet' if isinstance(self.net, FLRONet) else 'unet'
         self.net.train()
         
         for epoch in range(1, n_epochs + 1):
@@ -106,12 +103,8 @@ class Trainer(Worker):
                 # Use automatic mixed precision to speed up on A100/H100 GPUs
                 with autocast(device_type="cuda", dtype=torch.float16):
                     # Forward propagation
-                    if isinstance(self.net, FLRONetWithUNet):
-                        reconstruction_frames: torch.Tensor = self.net(
-                            sensor_timeframes=sensor_timeframes,
-                            sensor_values=sensor_frames,
-                            fullstate_timeframes=fullstate_timeframes,
-                        )
+                    if isinstance(self.net, UNet):
+                        reconstruction_frames: torch.Tensor = self.net(input=sensor_frames)
                     else:
                         reconstruction_frames: torch.Tensor = self.net(
                             sensor_timeframes=sensor_timeframes,
@@ -141,11 +134,7 @@ class Trainer(Worker):
 
             # Ragularly save checkpoint
             if checkpoint_path is not None and epoch % save_frequency == 0:
-                checkpoint_saver.save(
-                    model_states=self.net.state_dict(), 
-                    optimizer_states=self.optimizer.state_dict(),
-                    filename=f'{checkpoint_prefix}{epoch}.pt',
-                )
+                checkpoint_saver.save(model_states=self.net.state_dict(), filename=f'{checkpoint_prefix}{epoch}.pt')
 
             # Reset metric records for next epoch
             train_metrics.reset()
@@ -168,11 +157,7 @@ class Trainer(Worker):
 
         # Always save last checkpoint
         if checkpoint_path:
-            checkpoint_saver.save(
-                model_states=self.net.state_dict(), 
-                optimizer_states=self.optimizer.state_dict(),
-                filename=f'{checkpoint_prefix}{epoch}.pt',
-            )
+            checkpoint_saver.save(model_states=self.net.state_dict(), filename=f'{checkpoint_prefix}{epoch}.pt')
 
     def evaluate(self) -> float:
         val_metrics = Accumulator()
@@ -184,12 +169,8 @@ class Trainer(Worker):
                 # Forward propagation
                 with autocast(device_type="cuda", dtype=torch.float16):
                     # Forward propagation
-                    if isinstance(self.net, FLRONetWithUNet):
-                        reconstruction_frames: torch.Tensor = self.net(
-                            sensor_timeframes=sensor_timeframes,
-                            sensor_values=sensor_frames,
-                            fullstate_timeframes=fullstate_timeframes,
-                        )
+                    if isinstance(self.net, UNet):
+                        reconstruction_frames: torch.Tensor = self.net(input=sensor_frames)
                     else:
                         reconstruction_frames: torch.Tensor = self.net(
                             sensor_timeframes=sensor_timeframes,
@@ -210,14 +191,12 @@ class Trainer(Worker):
 
 class Predictor(Worker, DatasetMixin):
 
-    def __init__(
-        self, 
-        net: FLRONetWithFNO | FLRONetWithUNet, 
-
-    ):
+    def __init__(self, net: FLRONet | UNet):
         self.net = net.cuda()
         self.rmse = nn.MSELoss(reduction='sum')
         self.mae = nn.L1Loss(reduction='sum')
+        self.model_name: str = 'flronet' if isinstance(net, FLRONet) else 'unet'
+
 
     def predict_from_scratch(
         self, 
@@ -276,15 +255,9 @@ class Predictor(Worker, DatasetMixin):
             # reconstruct
             with autocast(device_type="cuda", dtype=torch.float16):
                 # Forward propagation
-                if isinstance(self.net, FLRONetWithUNet):
-                    reconstruction_frames: torch.Tensor = self.net(
-                        sensor_timeframes=sensor_timeframes,
-                        sensor_values=sensor_frames,
-                        fullstate_timeframes=reconstruction_timeframes,
-                    )
-                    assert reconstruction_frames.shape == (
-                        1, n_fullstate_timeframes, self.net.n_channels, in_H, in_W
-                    )
+                if isinstance(self.net, UNet):
+                    reconstruction_frames: torch.Tensor = self.net(input=sensor_frames)
+                    assert reconstruction_frames.shape == (1, n_fullstate_timeframes, self.net.n_channels, in_H, in_W)
                 else:
                     reconstruction_frames: torch.Tensor = self.net(
                         sensor_timeframes=sensor_timeframes,
@@ -293,9 +266,7 @@ class Predictor(Worker, DatasetMixin):
                         out_resolution=out_resolution,
                     )
                     out_H, out_W = out_resolution
-                    assert reconstruction_frames.shape == (
-                        1, n_fullstate_timeframes, self.net.n_channels, out_H, out_W
-                    )
+                    assert reconstruction_frames.shape == (1, n_fullstate_timeframes, self.net.n_channels, out_H, out_W)
 
         # visualization
         reconstruction_frames = reconstruction_frames.squeeze(dim=0)
@@ -304,12 +275,12 @@ class Predictor(Worker, DatasetMixin):
         for frame_idx in tqdm(range(reconstruction_frames.shape[0]), desc=f'{case_name}: '):
             reconstruction_frame: torch.Tensor = reconstruction_frames[frame_idx]
             at_timeframe = float(reconstruction_timeframes[frame_idx].item())
-            if isinstance(self.net, FLRONetWithUNet):
+            if isinstance(self.net, UNet):
                 plot_frame(
                     sensor_positions=original_sensor_positions,
                     reconstruction_frame=reconstruction_frame,
                     reduction=lambda x: compute_velocity_field(x, dim=0),
-                    title=f'{case_name.upper()} t={at_timeframe * 0.001:.6f}s. active sensors: {str(n_active_sensors).zfill(2)}/{str(n_sensors).zfill(2)}',
+                    title=f'{case_name.upper()} t={at_timeframe * 0.001}s. active sensors: {str(n_active_sensors).zfill(2)}/{str(n_sensors).zfill(2)}',
                     filename=f'{case_name.lower()}_f{str(at_timeframe).replace(".","")}_{in_H}x{in_W}',
                 )
             else:
@@ -321,8 +292,8 @@ class Predictor(Worker, DatasetMixin):
                     sensor_positions=new_sensor_position,
                     reconstruction_frame=reconstruction_frame,
                     reduction=lambda x: compute_velocity_field(x, dim=0),
-                    title=f'{case_name.upper()} t={at_timeframe * 0.001:.6f}s. active sensors: {str(n_active_sensors).zfill(2)}/{str(n_sensors).zfill(2)}',
-                    filename=f'{case_name.lower()}_f{str(at_timeframe).replace(".","")}_d{n_dropout_sensors}_{out_H}x{out_W}'
+                    title=f'{case_name.upper()} t={at_timeframe * 0.001}s. active sensors: {str(n_active_sensors).zfill(2)}/{str(n_sensors).zfill(2)}',
+                    filename=f'{self.model_name}_{case_name.lower()}_f{str(at_timeframe).replace(".","")}_d{n_dropout_sensors}_{out_H}x{out_W}'
                 )
 
 
@@ -342,12 +313,8 @@ class Predictor(Worker, DatasetMixin):
                 # Forward propagation
                 with autocast(device_type="cuda", dtype=torch.float16):
                     # Forward propagation
-                    if isinstance(self.net, FLRONetWithUNet):
-                        reconstruction_frames: torch.Tensor = self.net(
-                            sensor_timeframes=sensor_timeframes,
-                            sensor_values=sensor_frames,
-                            fullstate_timeframes=fullstate_timeframes,
-                        )
+                    if isinstance(self.net, UNet):
+                        reconstruction_frames: torch.Tensor = self.net(input=sensor_frames)
                     else:
                         reconstruction_frames: torch.Tensor = self.net(
                             sensor_timeframes=sensor_timeframes,
@@ -357,10 +324,12 @@ class Predictor(Worker, DatasetMixin):
                         )
 
                 # Visualization
+                sensor_frames = sensor_frames.squeeze(dim=0)
                 reconstruction_frames = reconstruction_frames.squeeze(dim=0)
                 fullstate_frames = fullstate_frames.squeeze(dim=0)
                 fullstate_timeframes = fullstate_timeframes.squeeze(dim=0)
                 for frame_idx in range(fullstate_timeframes.shape[0]):
+                    sensor_frame: torch.Tensor = sensor_frames[frame_idx]
                     reconstruction_frame: torch.Tensor = reconstruction_frames[frame_idx]
                     fullstate_frame: torch.Tensor = fullstate_frames[frame_idx]
                     frame_total_mse: torch.Tensor = self.rmse(
@@ -379,6 +348,7 @@ class Predictor(Worker, DatasetMixin):
                     sampling_id: int = sampling_ids[frame_idx]
                     plot_frame(
                         sensor_positions=dataset.sensor_positions,
+                        sensor_frame=sensor_frame,
                         fullstate_frame=fullstate_frame, 
                         reconstruction_frame=reconstruction_frame,
                         reduction=lambda x: compute_velocity_field(x, dim=0),
@@ -388,7 +358,7 @@ class Predictor(Worker, DatasetMixin):
                             f'active sensors: {str(n_active_sensors).zfill(2)}/{str(n_sensors).zfill(2)}, '
                             f'RMSE: {frame_mean_rmse:.3f}, MAE: {frame_mean_mae:.3f}'
                         ),
-                        filename=f'{case_name.lower()}s{sampling_id}_f{str(at_timeframe).zfill(3)}_d{n_dropout_sensors}_{trained_H}x{trained_W}'
+                        filename=f'{self.model_name}_{case_name.lower()}s{sampling_id}_f{str(at_timeframe).zfill(3)}_d{n_dropout_sensors}_{trained_H}x{trained_W}'
                     )
                     rmse_values.append(frame_mean_rmse)
                     mae_values.append(frame_mean_mae)

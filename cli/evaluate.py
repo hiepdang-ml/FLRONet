@@ -2,12 +2,9 @@ import argparse
 from typing import List, Dict, Any
 
 import yaml
-import torch
 from torch.optim import Optimizer, Adam
 
-from cfd.sensors import LHS, AroundCylinder
-from cfd.embedding import Mask, Voronoi
-from model.flronet import FLRONetWithFNO, FLRONetWithUNet
+from model import FLRONet, UNet
 from cfd.dataset import CFDDataset
 from common.training import CheckpointLoader
 from worker import Predictor
@@ -31,6 +28,7 @@ def main(config: Dict[str, Any]) -> None:
     embedding_generator: str                    = str(config['dataset']['embedding_generator'])
     seed: int                                   = int(config['dataset']['seed'])
     n_dropout_sensors: int                      = int(config['evaluate']['n_dropout_sensors'])
+    init_fullstate_timeframe: int | None        = config['evaluate']['init_fullstate_timeframe']
     from_checkpoint: str                        = str(config['evaluate']['from_checkpoint'])
     already_preloaded: bool                     = bool(config['evaluate']['already_preloaded'])
 
@@ -51,13 +49,14 @@ def main(config: Dict[str, Any]) -> None:
         dropout_probabilities=implied_dropout_probabilities,
         sensor_generator=sensor_generator, 
         embedding_generator=embedding_generator,
+        init_fullstate_timeframe=init_fullstate_timeframe,
         seed=seed,
         already_preloaded=already_preloaded,
     )
 
     # Load the model
     checkpoint_loader = CheckpointLoader(checkpoint_path=from_checkpoint)
-    net: FLRONetWithFNO | FLRONetWithUNet = checkpoint_loader.load(scope=globals())[0]
+    net: FLRONet | UNet = checkpoint_loader.load(scope=globals())
         
     # Make prediction
     print(f'Using: {from_checkpoint}')
@@ -68,7 +67,7 @@ def main(config: Dict[str, Any]) -> None:
 
 if __name__ == "__main__":
     # Initialize the argument parser
-    parser = argparse.ArgumentParser(description='Evaluate a trained FLRONet on test dataset')
+    parser = argparse.ArgumentParser()
     parser.add_argument('--config', type=str, required=True, help='Configuration file name.')
     args: argparse.Namespace = parser.parse_args()
     # Load the configuration

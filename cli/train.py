@@ -6,7 +6,7 @@ from torch.optim import Optimizer, Adam
 
 from cfd.sensors import LHS, AroundCylinder
 from cfd.embedding import Mask, Voronoi
-from model import FLRONetWithFNO, FLRONetWithUNet
+from model import FLRONet, UNet
 from cfd.dataset import CFDDataset
 from common.training import CheckpointLoader
 from worker import Trainer
@@ -31,7 +31,7 @@ def main(config: Dict[str, Any]) -> None:
     dropout_probabilities: List[float]          = list(config['dataset']['dropout_probabilities'])
     seed: int                                   = int(config['dataset']['seed'])
     already_preloaded: bool                     = bool(config['dataset']['already_preloaded'])
-    branch_net: str                             = str(config['architecture']['branch_net'])
+    model_name: str                             = str(config['architecture']['momdel_name'])
     n_channels: int                             = int(config['architecture']['n_channels'])
     embedding_dim: int                          = int(config['architecture']['embedding_dim'])
     n_stacked_networks: int                     = int(config['architecture']['n_stacked_networks'])
@@ -61,6 +61,7 @@ def main(config: Dict[str, Any]) -> None:
         dropout_probabilities=dropout_probabilities,
         sensor_generator=sensor_generator, 
         embedding_generator=embedding_generator,
+        init_fullstate_timeframe=None,  # always train on random fullstate frames
         seed=seed,
         already_preloaded=already_preloaded,
     )
@@ -74,38 +75,45 @@ def main(config: Dict[str, Any]) -> None:
         dropout_probabilities=dropout_probabilities,
         sensor_generator=sensor_generator, 
         embedding_generator=embedding_generator,
+        init_fullstate_timeframe=None,  # always validate on random fullstate frames
         seed=seed,
         already_preloaded=already_preloaded,
     )
 
     # Load the model
-    if from_checkpoint is not None:
-        checkpoint_loader = CheckpointLoader(checkpoint_path=from_checkpoint)
-        net: FLRONetWithFNO | FLRONetWithUNet = checkpoint_loader.load(scope=globals())[0].cuda()    # ignore optimizer
-    else:
-        if branch_net.lower() == 'fno':
-            net = FLRONetWithFNO(
+    if model_name.lower() == 'flronet':
+        if from_checkpoint is not None:
+            checkpoint_loader = CheckpointLoader(checkpoint_path=from_checkpoint)
+            net: FLRONet = checkpoint_loader.load(scope=globals()).cuda()    # ignore optimizer
+            assert isinstance(net, FLRONet)
+        else:
+            net = FLRONet(
                 n_channels=n_channels, n_fno_layers=n_fno_layers, 
                 n_hmodes=n_hmodes, n_wmodes=n_wmodes, embedding_dim=embedding_dim,
                 total_timeframes=train_dataset.total_timeframes_per_case,
                 n_stacked_networks=n_stacked_networks,
             ).cuda()
-        else:
-            net = FLRONetWithUNet(
-                n_channels=n_channels, embedding_dim=embedding_dim,
-                total_timeframes=train_dataset.total_timeframes_per_case,
-                n_stacked_networks=n_stacked_networks,
-            ).cuda()
 
-    if freeze_branchnets: 
-        print('Freezed BranchNets')
-        net.freeze_branchnets()
-    if freeze_trunknets: 
-        print('Freezed TrunkNets')
-        net.freeze_trunknets()
-    if freeze_bias: 
-        print('Freezed Bias')
-        net.freeze_bias()
+        if freeze_branchnets:
+            print('Freezed BranchNets')
+            net.freeze_branchnets()
+        if freeze_trunknets:
+            print('Freezed TrunkNets')
+            net.freeze_trunknets()
+        if freeze_bias:
+            print('Freezed Bias')
+            net.freeze_bias()
+    else:
+        if from_checkpoint is not None:
+            checkpoint_loader = CheckpointLoader(checkpoint_path=from_checkpoint)
+            net: UNet = checkpoint_loader.load(scope=globals()).cuda()    # ignore optimizer
+            assert isinstance(net, UNet)
+        else:
+            net = UNet(
+                n_channels=n_channels, embedding_dim=embedding_dim, 
+                in_timesteps=len(init_sensor_timeframes), 
+                out_timesteps=n_fullstate_timeframes_per_chunk,
+            ).cuda()
 
     trainer = Trainer(
         net=net, 
@@ -126,7 +134,7 @@ def main(config: Dict[str, Any]) -> None:
 
 if __name__ == "__main__":
     # Initialize the argument parser
-    parser = argparse.ArgumentParser(description='Train FLRONet')
+    parser = argparse.ArgumentParser()
     parser.add_argument('--config', type=str, required=True, help='Configuration file name.')
     args: argparse.Namespace = parser.parse_args()
     # Load the configuration

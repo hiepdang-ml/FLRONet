@@ -11,17 +11,19 @@ dataset:
   already_preloaded: false
 
 architecture:
-  branch_net: 'FNO'  # FNO | UNet
+  momdel_name: 'flronet'  # flronet | unet
+  # momdel_name: 'unet'  # flronet | unet
   n_channels: 2   # fixed for 2d problems
   embedding_dim: 64
+  # FLRONet-specific configs:
   n_stacked_networks: 2
-  # FNO-specific configs:
   n_fno_layers: 4
   n_hmodes: 24
   n_wmodes: 48
 
 training:
-  from_checkpoint: 'best_flronetfno/flronetfno13.pt'  # set to null to train from scratch
+  from_checkpoint: 'best_flronet/flronet13.pt' # set to null to train from scratch
+  # from_checkpoint: 'best_unet/unet12.pt' # set to null to train from scratch
   train_batch_size: 4
   val_batch_size: 2
   learning_rate: 1e-4
@@ -29,23 +31,25 @@ training:
   patience: 5
   tolerance: 0.
   save_frequency: 1
+  # FLRONet-specific configs:
   freeze_branchnets: false
   freeze_trunknets: false
   freeze_bias: false
 
 evaluate:
-  from_checkpoint: 'best_flronetfno/flronetfno13.pt'
-  n_dropout_sensors: 10
+  from_checkpoint: 'best_flronet/flronet13.pt'
+  # from_checkpoint: 'best_unet/unet12.pt'
+  n_dropout_sensors: 0
+  init_fullstate_timeframe: 10  # set to null means randomly generate the fullstate frames with the same random seed at training
   already_preloaded: false
 
 inference:
-  case_dir: 'data/test/case0045'
-  sensor_timeframes: [620, 625, 630, 635, 640]
-  reconstruction_timeframes: [632.5]
+  from_checkpoint: 'best_flronet/flronet13.pt'
+  case_dir: 'data/test/case0038'
+  sensor_timeframes: [180, 185, 190, 195, 200]
+  reconstruction_timeframes: [180]
   sensor_position_path: 'tensors/test/sensor_positions/pos.pt'
-  n_dropout_sensors: 3
-  from_checkpoint: 'best_flronetfno/flronetfno13.pt'
-  # FNO-specific configs:
+  n_dropout_sensors: 0
   out_resolution: [140, 240]
   # out_resolution: [280, 480]
   # out_resolution: [560, 960]
