@@ -280,3 +280,23 @@ class CFDDataset(Dataset, DatasetMixin):
             json.dump(obj=records, fp=f, indent=2)
 
 
+
+if __name__ == '__main__':
+    # NOTE: How to load precomputed dataset from disk
+    self = CFDDataset(
+        root='data/train',
+        # root='data/test',
+        init_sensor_timeframes=[0, 5, 10, 15, 20],
+        n_fullstate_timeframes_per_chunk=1,
+        n_samplings_per_chunk=1,
+        resolution=(140, 240),
+        n_sensors=32,
+        dropout_probabilities=[0.05, 0.04, 0.03, 0.02, 0.01],
+        sensor_generator='LHS',
+        embedding_generator='Voronoi',
+        init_fullstate_timeframe=None,
+        seed=1,
+        already_preloaded=False,    # set to False for first time load
+    )
+    # first sample
+    sensor_timeframe_tensor, sensor_tensor, fullstate_timeframe_tensor, fullstate_tensor, case_name, sampling_id = self[0]
