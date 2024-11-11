@@ -40,7 +40,7 @@ evaluate:
   from_checkpoint: 'best_flronet/flronet13.pt'
   # from_checkpoint: 'best_unet/unet12.pt'
   n_dropout_sensors: 0
-  init_fullstate_timeframe: 10  # set to null means randomly generate the fullstate frames with the same random seed at training
+  init_fullstate_timeframe: 20  # set to null means randomly generate the fullstate frames with the same random seed at training
   already_preloaded: false
 
 inference:

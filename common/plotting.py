@@ -74,12 +74,12 @@ def plot_frame(
         max_value: float = max([frame.max().item() for frame in frames_to_plot])
 
     max_value *= 0.8    # for better coloring
+    # max_value = 8.
     for frame, ax, chart_title in zip(frames_to_plot, axs, chart_titles):
         if chart_title == 'Error':
             norm = matplotlib.colors.Normalize(vmin=-max_value, vmax=max_value)
         else:
-            # norm = matplotlib.colors.Normalize(vmin=0, vmax=max_value)
-            norm = matplotlib.colors.Normalize(vmin=0, vmax=8.)
+            norm = matplotlib.colors.Normalize(vmin=0, vmax=max_value)
 
         im = ax.imshow(frame.squeeze(dim=0), origin="lower", norm=norm, cmap='seismic')
         cbar = ax.figure.colorbar(im, ax=ax, orientation='vertical', fraction=0.046, pad=0.04)

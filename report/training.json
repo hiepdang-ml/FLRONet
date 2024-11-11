@@ -1,0 +1,17 @@
+{
+  "1": {"train_rmse": 2.838e-01, "train_mse": 8.054e-02, "val_rmse": 1.585e-01, "val_mse": 2.514e-02},
+  "2": {"train_rmse": 8.132e-02, "train_mse": 6.614e-03, "val_rmse": 1.123e-01, "val_mse": 1.262e-02},
+  "3": {"train_rmse": 6.063e-02, "train_mse": 3.676e-03, "val_rmse": 9.494e-02, "val_mse": 9.013e-03},
+  "4": {"train_rmse": 5.488e-02, "train_mse": 3.012e-03, "val_rmse": 9.486e-02, "val_mse": 8.999e-03},
+  "5": {"train_rmse": 5.221e-02, "train_mse": 2.726e-03, "val_rmse": 8.669e-02, "val_mse": 7.514e-03},
+  "6": {"train_rmse": 5.063e-02, "train_mse": 2.563e-03, "val_rmse": 9.121e-02, "val_mse": 8.319e-03},
+  "7": {"train_rmse": 4.863e-02, "train_mse": 2.365e-03, "val_rmse": 8.182e-02, "val_mse": 6.694e-03},
+  "8": {"train_rmse": 4.774e-02, "train_mse": 2.279e-03, "val_rmse": 8.493e-02, "val_mse": 7.213e-03},
+  "9": {"train_rmse": 4.678e-02, "train_mse": 2.188e-03, "val_rmse": 8.195e-02, "val_mse": 6.715e-03},
+  "10": {"train_rmse": 4.660e-02, "train_mse": 2.172e-03, "val_rmse": 8.047e-02, "val_mse": 6.475e-03},
+  "11": {"train_rmse": 4.592e-02, "train_mse": 2.109e-03, "val_rmse": 7.839e-02, "val_mse": 6.146e-03},
+  "12": {"train_rmse": 4.505e-02, "train_mse": 2.030e-03, "val_rmse": 8.571e-02, "val_mse": 7.346e-03},
+  "13": {"train_rmse": 4.479e-02, "train_mse": 2.006e-03, "val_rmse": 7.474e-02, "val_mse": 5.586e-03},
+  "14": {"train_rmse": 4.455e-02, "train_mse": 1.985e-03, "val_rmse": 8.003e-02, "val_mse": 6.405e-03},
+  "15": {"train_rmse": 4.370e-02, "train_mse": 1.910e-03, "val_rmse": 8.099e-02, "val_mse": 6.559e-03}
+}

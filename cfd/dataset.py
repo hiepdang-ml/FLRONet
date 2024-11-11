@@ -26,39 +26,36 @@ class DatasetMixin:
         ).float()
 
     def prepare_sensor_timeframes(self) -> torch.IntTensor:
-        # compute number of steps to reach n_timeframes (also the number of chunks)
-        n_chunks = self.total_timeframes_per_case - max(self.init_sensor_timeframes)
         # prepare sensor timeframes (fixed)
         sensor_timeframes: torch.Tensor = (
-            torch.tensor(self.init_sensor_timeframes, device='cuda') + torch.arange(n_chunks, device='cuda').unsqueeze(1)
+            torch.tensor(self.init_sensor_timeframes, device='cuda') + torch.arange(self.n_chunks, device='cuda').unsqueeze(1)
         )
-        assert sensor_timeframes.shape == (n_chunks, len(self.init_sensor_timeframes))
+        assert sensor_timeframes.shape == (self.n_chunks, len(self.init_sensor_timeframes))
         return sensor_timeframes.int()
 
     def prepare_fullstate_timeframes(self, seed: int | None = None, init_fullstate_timeframe: int = -1) -> torch.IntTensor:
         assert seed is not None or init_fullstate_timeframe != -1, 'must be either deterministic or random'
-        n_chunks = self.total_timeframes_per_case - max(self.init_sensor_timeframes)
         if seed is None and init_fullstate_timeframe != -1:    # deterministic
             assert self.n_fullstate_timeframes_per_chunk == 1, (
                 f'n_fullstate_timeframes_per_chunk should be logically set to 1 when target frames are generated deterministically '
                 f'(otherwise it contains overlapping frames), '
                 f'get: {self.n_fullstate_timeframes_per_chunk}'
             )
-            fullstate_timeframes: torch.Tensor = torch.arange(n_chunks, device='cuda').unsqueeze(1) + init_fullstate_timeframe
-            assert fullstate_timeframes.shape == (n_chunks, self.n_fullstate_timeframes_per_chunk)
+            fullstate_timeframes: torch.Tensor = torch.arange(self.n_chunks, device='cuda').unsqueeze(1) + init_fullstate_timeframe
+            assert fullstate_timeframes.shape == (self.n_chunks, self.n_fullstate_timeframes_per_chunk)
             return fullstate_timeframes
         
         else:
             assert seed is not None, 'seed must be specified when target frames are generated randomly'
-            fullstate_timeframes: torch.Tensor = torch.empty((n_chunks, self.n_fullstate_timeframes_per_chunk), dtype=torch.int, device='cuda')
-            for chunk_idx in range(n_chunks):
+            fullstate_timeframes: torch.Tensor = torch.empty((self.n_chunks, self.n_fullstate_timeframes_per_chunk), dtype=torch.int, device='cuda')
+            for chunk_idx in range(self.n_chunks):
                 torch.random.manual_seed(seed + chunk_idx)
                 random_init_timeframes: torch.Tensor = torch.randperm(
                     n=max(self.init_sensor_timeframes), device='cuda'
                 )[:self.n_fullstate_timeframes_per_chunk].sort()[0]
                 fullstate_timeframes[chunk_idx] = random_init_timeframes + chunk_idx
 
-            assert fullstate_timeframes.shape == (n_chunks, self.n_fullstate_timeframes_per_chunk)
+            assert fullstate_timeframes.shape == (self.n_chunks, self.n_fullstate_timeframes_per_chunk)
             return fullstate_timeframes
 
 
@@ -120,6 +117,10 @@ class CFDDataset(Dataset, DatasetMixin):
                         f'n_samplings_per_chunk should be logically set to 1 when sensors are generated deterministically, '
                         f'get: {n_samplings_per_chunk}'
                     )
+                self.n_chunks: int = self.total_timeframes_per_case - max(self.init_sensor_timeframes + [init_fullstate_timeframe])  # usable for time extrapolation
+            else:
+                self.n_chunks: int = self.total_timeframes_per_case - max(self.init_sensor_timeframes)
+            # NOTE: self.n_chunks is the number of samples in one case
 
             if sensor_generator == 'LHS':
                 self.sensor_generator = LHS(n_sensors=n_sensors)
@@ -219,10 +220,9 @@ class CFDDataset(Dataset, DatasetMixin):
             
             # sensor data
             sensor_frame_data: torch.Tensor = data[self.sensor_timeframes]
-            n_chunks: int = sensor_frame_data.shape[0]
             # resize sensor frames (original resolution is 64 x 64, which is not proportional to 0.14m x 0.24m)
             sensor_frame_data = F.interpolate(input=sensor_frame_data.flatten(0, 1), size=self.resolution, mode='bicubic')
-            sensor_frame_data = sensor_frame_data.reshape(n_chunks, self.n_sensor_timeframes_per_chunk, 2, self.H, self.W)
+            sensor_frame_data = sensor_frame_data.reshape(self.n_chunks, self.n_sensor_timeframes_per_chunk, 2, self.H, self.W)
             for sampling_id in range(self.n_samplings_per_chunk):
                 # fullstate data
                 if self.is_random_fullstate_frames:
@@ -237,21 +237,21 @@ class CFDDataset(Dataset, DatasetMixin):
                 fullstate_data: torch.Tensor = data[fullstate_timeframes]
                 # resize fullstate frames
                 fullstate_data = F.interpolate(input=fullstate_data.flatten(0, 1), size=self.resolution, mode='bicubic')
-                fullstate_data = fullstate_data.reshape(n_chunks, self.n_fullstate_timeframes_per_chunk, 2, self.H, self.W)
-                assert fullstate_data.shape == (n_chunks, self.n_fullstate_timeframes_per_chunk, 2, self.H, self.W)
-                assert fullstate_timeframes.shape == (n_chunks, self.n_fullstate_timeframes_per_chunk)
+                fullstate_data = fullstate_data.reshape(self.n_chunks, self.n_fullstate_timeframes_per_chunk, 2, self.H, self.W)
+                assert fullstate_data.shape == (self.n_chunks, self.n_fullstate_timeframes_per_chunk, 2, self.H, self.W)
+                assert fullstate_timeframes.shape == (self.n_chunks, self.n_fullstate_timeframes_per_chunk)
                 # compute sensor data for entire space
                 sensor_data: torch.Tensor = self.embedding_generator(data=sensor_frame_data, seed=self.seed + case_id + sampling_id)
-                assert sensor_data.shape == (n_chunks, self.n_sensor_timeframes_per_chunk, 2, self.H, self.W)
+                assert sensor_data.shape == (self.n_chunks, self.n_sensor_timeframes_per_chunk, 2, self.H, self.W)
                 # Write each sample to disk
-                for idx in tqdm(range(n_chunks), desc=f'Case {case_id + 1} | Sampling {sampling_id + 1}: '):
+                for idx in tqdm(range(self.n_chunks), desc=f'Case {case_id + 1} | Sampling {sampling_id + 1}: '):
                     # case name & sampling id
                     case_name: str = os.path.basename(case_dir)
                     self.case_names.append(case_name)
                     self.sampling_ids.append(sampling_id)
                     prefix: str = f'_{case_name}_{sampling_id}_'
                     # indexes
-                    true_idx: int = idx + sampling_id * n_chunks + case_id * n_chunks * self.n_samplings_per_chunk
+                    true_idx: int = idx + sampling_id * self.n_chunks + case_id * self.n_chunks * self.n_samplings_per_chunk
                     suffix = str(true_idx).zfill(6)
                     # save sensor timeframes, sensor value (dynamic to chunks, but constant to samplings)
                     sensor_timeframes_list.append(self.sensor_timeframes[idx].tolist())

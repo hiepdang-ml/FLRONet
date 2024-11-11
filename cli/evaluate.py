@@ -1,5 +1,5 @@
 import argparse
-from typing import List, Dict, Any
+from typing import List, Tuple, Dict, Any
 
 import yaml
 from torch.optim import Optimizer, Adam
@@ -61,8 +61,8 @@ def main(config: Dict[str, Any]) -> None:
     # Make prediction
     print(f'Using: {from_checkpoint}')
     predictor = Predictor(net=net)
-    avg_metric: float = predictor.predict_from_dataset(dataset)
-    print(avg_metric)
+    avg_metrics: Tuple[float, float] = predictor.predict_from_dataset(dataset)
+    print(avg_metrics)
 
 
 if __name__ == "__main__":
