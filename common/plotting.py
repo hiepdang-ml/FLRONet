@@ -73,8 +73,8 @@ def plot_frame(
     else:
         max_value: float = max([frame.max().item() for frame in frames_to_plot])
 
-    max_value *= 0.8    # for better coloring
-    # max_value = 8.
+    # max_value *= 0.8    # for better coloring
+    max_value = 8.
     for frame, ax, chart_title in zip(frames_to_plot, axs, chart_titles):
         if chart_title == 'Error':
             norm = matplotlib.colors.Normalize(vmin=-max_value, vmax=max_value)
@@ -82,7 +82,8 @@ def plot_frame(
             norm = matplotlib.colors.Normalize(vmin=0, vmax=max_value)
 
         im = ax.imshow(frame.squeeze(dim=0), origin="lower", norm=norm, cmap='seismic')
-        cbar = ax.figure.colorbar(im, ax=ax, orientation='vertical', fraction=0.046, pad=0.04)
+        # cbar = ax.figure.colorbar(im, ax=ax, orientation='vertical', fraction=0.046, pad=0.04)
+        cbar = ax.figure.colorbar(im, ax=ax, orientation='vertical', fraction=0.027, pad=0.04)  # for display in report
         cbar.ax.tick_params(labelsize=10)
 
         if sensor_positions is not None:
@@ -97,7 +98,9 @@ def plot_frame(
                         fill=True
                     )
                 )
-        ax.set_title(f'{chart_title}', fontsize=14)
+        # NOTE: setting for display in report
+        ax.tick_params(labelbottom=False, labelleft=False)  # remove tick labels
+        # ax.set_title(f'{chart_title}', fontsize=14)   # set subplot titles
 
     fig.suptitle(title, fontsize=15)
     # Finalize and save the figure

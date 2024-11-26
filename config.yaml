@@ -5,27 +5,32 @@ dataset:
   resolution: [140, 240]
   n_sensors: 32
   sensor_generator: 'LHS'  # AroundCylinder | LHS
-  embedding_generator: 'Voronoi'  # Voronoi | Mask
+  embedding_generator: 'Voronoi'  # Voronoi | Mask | Vector
   dropout_probabilities: [0.05, 0.04, 0.03, 0.02, 0.01]   # [] for no dropout
   seed: 1
-  already_preloaded: false
 
 architecture:
-  momdel_name: 'flronet'  # flronet | unet
-  # momdel_name: 'unet'  # flronet | unet
+  # momdel_name: 'flronet-fno'    # flronet-fno | flronet-unet | flronet-mlp | fno3d
+  # momdel_name: 'flronet-unet' # flronet-fno | flronet-unet | flronet-mlp | fno3d
+  # momdel_name: 'flronet-mlp'  # flronet-fno | flronet-unet | flronet-mlp | fno3d
+  momdel_name: 'fno3d'        # flronet-fno | flronet-unet | flronet-mlp | fno3d
+  # General configs:
   n_channels: 2   # fixed for 2d problems
   embedding_dim: 64
-  # FLRONet-specific configs:
-  n_stacked_networks: 2
+  # FLRONet-FNO & FNO3D -specific configs:
   n_fno_layers: 4
   n_hmodes: 24
   n_wmodes: 48
+  # FNO3D -specific configs:
+  n_tmodes: 2
+  # FLRONet-specific configs:
+  n_stacked_networks: 2
 
 training:
-  from_checkpoint: 'best_flronet/flronet13.pt' # set to null to train from scratch
-  # from_checkpoint: 'best_unet/unet12.pt' # set to null to train from scratch
-  train_batch_size: 4
-  val_batch_size: 2
+  # from_checkpoint: 'best_flronet/flronet15.pt' # set to null to train from scratch
+  from_checkpoint: null # set to null to train from scratch
+  train_batch_size: 8
+  val_batch_size: 1
   learning_rate: 1e-4
   n_epochs: 100
   patience: 5
@@ -37,11 +42,12 @@ training:
   freeze_bias: false
 
 evaluate:
-  from_checkpoint: 'best_flronet/flronet13.pt'
+  # from_checkpoint: 'best_flronet/flronet13.pt'
+  from_checkpoint: 'best_flronet/flronet15.pt'
   # from_checkpoint: 'best_unet/unet12.pt'
   n_dropout_sensors: 0
-  init_fullstate_timeframe: 20  # set to null means randomly generate the fullstate frames with the same random seed at training
-  already_preloaded: false
+  noise_level: 0.
+  init_fullstate_timeframes: [10] # FLRONet-specific, set to null to randomly generate the fullstate frames with the same random seed at training 
 
 inference:
   from_checkpoint: 'best_flronet/flronet13.pt'
@@ -50,6 +56,7 @@ inference:
   reconstruction_timeframes: [180]
   sensor_position_path: 'tensors/test/sensor_positions/pos.pt'
   n_dropout_sensors: 0
+  noise_level: 0.
   out_resolution: [140, 240]
   # out_resolution: [280, 480]
   # out_resolution: [560, 960]

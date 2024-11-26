@@ -1,2 +1,2 @@
-from .flronet import FLRONet, FLRONet
-from .benchmarks import UNet
+from .flronet import FLRONetFNO, FLRONetMLP, FLRONetUNet
+from .fno3d import FNO3D

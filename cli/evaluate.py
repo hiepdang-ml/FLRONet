@@ -1,10 +1,8 @@
 import argparse
 from typing import List, Tuple, Dict, Any
-
 import yaml
-from torch.optim import Optimizer, Adam
 
-from model import FLRONet, UNet
+from model import FLRONetFNO, FLRONetUNet, FLRONetMLP, FNO3D
 from cfd.dataset import CFDDataset
 from common.training import CheckpointLoader
 from worker import Predictor
@@ -28,9 +26,13 @@ def main(config: Dict[str, Any]) -> None:
     embedding_generator: str                    = str(config['dataset']['embedding_generator'])
     seed: int                                   = int(config['dataset']['seed'])
     n_dropout_sensors: int                      = int(config['evaluate']['n_dropout_sensors'])
-    init_fullstate_timeframe: int | None        = config['evaluate']['init_fullstate_timeframe']
+    noise_level: float                          = float(config['evaluate']['noise_level'])
+    init_fullstate_timeframes: List[int] | None  = config['evaluate']['init_fullstate_timeframes']
     from_checkpoint: str                        = str(config['evaluate']['from_checkpoint'])
-    already_preloaded: bool                     = bool(config['evaluate']['already_preloaded'])
+
+    # Load the model
+    checkpoint_loader = CheckpointLoader(checkpoint_path=from_checkpoint)
+    net: FLRONetFNO | FLRONetUNet | FLRONetMLP | FNO3D = checkpoint_loader.load(scope=globals())
 
     # Instatiate the training datasets
     if n_dropout_sensors == 0:
@@ -47,17 +49,13 @@ def main(config: Dict[str, Any]) -> None:
         resolution=resolution,
         n_sensors=n_sensors,
         dropout_probabilities=implied_dropout_probabilities,
+        noise_level=noise_level,
         sensor_generator=sensor_generator, 
         embedding_generator=embedding_generator,
-        init_fullstate_timeframe=init_fullstate_timeframe,
+        init_fullstate_timeframes=init_fullstate_timeframes if isinstance(net, FLRONetFNO) else init_sensor_timeframes,
         seed=seed,
-        already_preloaded=already_preloaded,
     )
-
-    # Load the model
-    checkpoint_loader = CheckpointLoader(checkpoint_path=from_checkpoint)
-    net: FLRONet | UNet = checkpoint_loader.load(scope=globals())
-        
+    
     # Make prediction
     print(f'Using: {from_checkpoint}')
     predictor = Predictor(net=net)

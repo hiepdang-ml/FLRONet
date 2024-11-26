@@ -13,6 +13,7 @@ class SensorEmbedding(ABC):
         resolution: Tuple[int, int],
         sensor_positions: torch.Tensor, 
         dropout_probabilities: List[float] = [], 
+        noise_level: float = 0.,
     ):
         self.resolution: Tuple[int, int] = resolution
         self.H, self.W = self.resolution
@@ -21,6 +22,7 @@ class SensorEmbedding(ABC):
         assert sum(dropout_probabilities) <= 1, "Dropout probabilities must sum to less than 1"
         self.n_max_dropout_sensors: int = len(dropout_probabilities)
         self.dropout_probabilities: List[float] = [1. - sum(dropout_probabilities)] + dropout_probabilities
+        self.noise_level: float = noise_level
         self.S: int = sensor_positions.shape[0]  # Number of sensors
 
     @abstractmethod
@@ -70,9 +72,10 @@ class Voronoi(SensorEmbedding):
         h_indices: torch.LongTensor = assigned_sensor_per_position[..., 0]
         w_indices: torch.LongTensor = assigned_sensor_per_position[..., 1]
         output: torch.Tensor = torch.empty_like(data)
+        noisy_data: torch.Tensor = data + torch.randn_like(data) * self.noise_level * data.abs()
         for i in range(N):
             for t in range(T):
-                output[i, t] = data[i, t, :, h_indices[i, t], w_indices[i, t]]
+                output[i, t] = noisy_data[i, t, :, h_indices[i, t], w_indices[i, t]]
 
         assert output.shape == data.shape == (N, T, C, H, W)
         return output
@@ -103,21 +106,53 @@ class Mask(SensorEmbedding):
         # Control random seed
         random.seed(seed)
         torch.manual_seed(seed)
+        noisy_data: torch.Tensor = data + torch.randn_like(data) * self.noise_level * data.abs()
         output: torch.Tensor = torch.empty_like(data, dtype=torch.float)
         for i in range(N):
-            n_dropout_sensors: int = random.choices(
-                population=range(0, self.n_max_dropout_sensors + 1, 1), weights=self.dropout_probabilities, k=1
-            )[0]
-            dropout_indices: torch.Tensor = torch.randperm(self.S)[:n_dropout_sensors]
-            mask: torch.Tensor = torch.ones(self.S, dtype=torch.bool)
-            mask[dropout_indices] = False
-            remaining_sensor_positions: torch.Tensor = self.sensor_positions[mask].long()
-            n_remaining_sensors: int = self.S - n_dropout_sensors
-            assert remaining_sensor_positions.shape == (n_remaining_sensors, 2)
-            h_indices: torch.Tensor = remaining_sensor_positions[:, 0]
-            w_indices: torch.Tensor = remaining_sensor_positions[:, 1]
-            output[i, :, :, h_indices, w_indices] = data[i, :, :, h_indices, w_indices]
+            for t in range(T):
+                n_dropout_sensors: int = random.choices(
+                    population=range(0, self.n_max_dropout_sensors + 1, 1), weights=self.dropout_probabilities, k=1
+                )[0]
+                dropout_indices: torch.Tensor = torch.randperm(self.S)[:n_dropout_sensors]
+                mask: torch.Tensor = torch.ones(self.S, dtype=torch.bool)
+                mask[dropout_indices] = False
+                remaining_sensor_positions: torch.Tensor = self.sensor_positions[mask].long()
+                n_remaining_sensors: int = self.S - n_dropout_sensors
+                assert remaining_sensor_positions.shape == (n_remaining_sensors, 2)
+                h_indices: torch.Tensor = remaining_sensor_positions[:, 0]
+                w_indices: torch.Tensor = remaining_sensor_positions[:, 1]
+                output[i, t, :, h_indices, w_indices] = noisy_data[i, t, :, h_indices, w_indices]
         
         assert output.shape == data.shape == (N, T, C, H, W)
         return output
 
+
+class Vector(SensorEmbedding):
+
+    def __call__(self, data: torch.Tensor, seed: int = 0) -> torch.Tensor:
+        N, T, C, H, W = data.shape
+        assert (H, W) == (self.H, self.W)
+
+        data = data.float()
+        # Control random seed
+        random.seed(seed)
+        torch.manual_seed(seed)
+        noisy_data: torch.Tensor = data + torch.randn_like(data) * self.noise_level * data.abs()
+        output: torch.Tensor = torch.zeros((N, T, C, self.S), dtype=torch.float, device='cuda')
+        for i in range(N):
+            for t in range(T):
+                n_dropout_sensors: int = random.choices(
+                    population=range(0, self.n_max_dropout_sensors + 1, 1), weights=self.dropout_probabilities, k=1
+                )[0]
+                dropout_indices: torch.Tensor = torch.randperm(self.S)[:n_dropout_sensors]
+                mask: torch.Tensor = torch.ones(self.S, dtype=torch.bool)
+                mask[dropout_indices] = False
+                remaining_sensor_positions: torch.Tensor = self.sensor_positions[mask].long()
+                n_remaining_sensors: int = self.S - n_dropout_sensors
+                assert remaining_sensor_positions.shape == (n_remaining_sensors, 2)
+                h_indices: torch.Tensor = remaining_sensor_positions[:, 0]
+                w_indices: torch.Tensor = remaining_sensor_positions[:, 1]
+                output[i, t, :, mask] = noisy_data[i, t, :, h_indices, w_indices]
+        
+        assert output.shape == (N, T, C, self.S)
+        return output

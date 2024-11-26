@@ -1,10 +1,8 @@
 import argparse
 from typing import Tuple, List, Dict, Any
-
 import yaml
-from torch.optim import Optimizer, Adam
 
-from model import FLRONet, UNet
+from model import FLRONetFNO, FLRONetUNet, FLRONetMLP, FNO3D
 from common.training import CheckpointLoader
 from worker import Predictor
 
@@ -24,6 +22,7 @@ def main(config: Dict[str, Any]) -> None:
     reconstruction_timeframes: List[int]        = list(config['inference']['reconstruction_timeframes'])
     sensor_position_path: str                   = str(config['inference']['sensor_position_path'])
     n_dropout_sensors: int                      = int(config['inference']['n_dropout_sensors'])
+    noise_level: float                          = float(config['inference']['noise_level'])
     from_checkpoint: str                        = str(config['inference']['from_checkpoint'])
     trained_resolution: Tuple[int, int]         = tuple(config['dataset']['resolution'])
     out_resolution: Tuple[int, int]             = tuple(config['inference']['out_resolution'])
@@ -31,31 +30,21 @@ def main(config: Dict[str, Any]) -> None:
     # Load the model
     print(f'Using: {from_checkpoint}')
     checkpoint_loader = CheckpointLoader(checkpoint_path=from_checkpoint)
-    net: FLRONet | UNet = checkpoint_loader.load(scope=globals())
+    net: FLRONetFNO | FLRONetUNet | FLRONetMLP | FNO3D = checkpoint_loader.load(scope=globals())
     
     # Make prediction
     predictor = Predictor(net=net)
-    if isinstance(net, UNet):
-        predictor.predict_from_scratch(
-            case_dir=case_dir,
-            sensor_timeframes=sensor_timeframes,
-            reconstruction_timeframes=reconstruction_timeframes,
-            sensor_position_path=sensor_position_path,
-            embedding_generator=embedding_generator,
-            n_dropout_sensors=n_dropout_sensors,
-            in_resolution=trained_resolution,
-        )
-    else:
-        predictor.predict_from_scratch(
-            case_dir=case_dir,
-            sensor_timeframes=sensor_timeframes,
-            reconstruction_timeframes=reconstruction_timeframes,
-            sensor_position_path=sensor_position_path,
-            embedding_generator=embedding_generator,
-            n_dropout_sensors=n_dropout_sensors,
-            in_resolution=trained_resolution,
-            out_resolution=out_resolution,
-        )
+    predictor.predict_from_scratch(
+        case_dir=case_dir,
+        sensor_timeframes=sensor_timeframes,
+        reconstruction_timeframes=reconstruction_timeframes,
+        sensor_position_path=sensor_position_path,
+        embedding_generator=embedding_generator,
+        n_dropout_sensors=n_dropout_sensors,
+        noise_level=noise_level,
+        in_resolution=trained_resolution,
+        out_resolution=out_resolution if isinstance(net, FLRONetFNO) else None,
+    )
 
 if __name__ == "__main__":
     # Initialize the argument parser
