@@ -53,15 +53,16 @@ class Voronoi(SensorEmbedding):
                     dropout_indices = torch.randperm(self.S, device='cuda')[:n_sensors_to_drop]
                     masks[i, t, dropout_indices] = False
 
+        del n_dropout_sensors   # manual garbage collection to save memory
         masks = masks.unsqueeze(-1).expand(N, T, self.S, H * W)
         assert masks.shape == (N, T, self.S, H * W)
-        precomputed_distances_expanded: torch.Tensor = self.precomputed_distances.unsqueeze(0).unsqueeze(0).expand(N, T, self.S, H * W)
-        assert precomputed_distances_expanded.shape == (N, T, self.S, H * W)
-        # Set distances of dropped sensors to infinity
-        precomputed_distances_masked: torch.Tensor = precomputed_distances_expanded.masked_fill(mask=~masks, value=float('inf'))
+        precomputed_distances_masked: torch.Tensor = self.precomputed_distances.unsqueeze(0).unsqueeze(0).expand(N, T, self.S, H * W)
         assert precomputed_distances_masked.shape == (N, T, self.S, H * W)
-        del precomputed_distances_expanded  # manual garbage collection to save memory
+        # Set distances of dropped sensors to infinity
+        precomputed_distances_masked = precomputed_distances_masked.masked_fill(mask=~masks, value=float('inf'))
+        assert precomputed_distances_masked.shape == (N, T, self.S, H * W)
         nearest_sensor_per_position: torch.Tensor = torch.argmin(precomputed_distances_masked, dim=2)
+        del precomputed_distances_masked
         assert nearest_sensor_per_position.shape == (N, T, H * W)
         
         assigned_sensor_per_position: torch.Tensor = self.sensor_positions[nearest_sensor_per_position.reshape(-1)].long()

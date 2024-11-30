@@ -6,32 +6,42 @@ with open('report/dropout.json', 'r') as f:
     data = json.load(f)
 
 # Extract values for plotting
-indices = list(range(len(data['FLRONet'])))
-rmse_flronet = [data['FLRONet'][str(i)]['RMSE'] for i in indices]
-mae_flronet = [data['FLRONet'][str(i)]['MAE'] for i in indices]
-rmse_unet = [data['UNet'][str(i)]['RMSE'] for i in indices]
-mae_unet = [data['UNet'][str(i)]['MAE'] for i in indices]
+steps = list(range(len(data['flronet-fno'])))
+rmse_flronetfno = [data['flronet-fno'][str(i)]['RMSE'] for i in steps]
+mae_flronetfno = [data['flronet-fno'][str(i)]['MAE'] for i in steps]
+rmse_flronetunet = [data['flronet-unet'][str(i)]['RMSE'] for i in steps]
+mae_flronetunet = [data['flronet-unet'][str(i)]['MAE'] for i in steps]
+rmse_flronetmlp = [data['flronet-mlp'][str(i)]['RMSE'] for i in steps]
+mae_flronetmlp = [data['flronet-mlp'][str(i)]['MAE'] for i in steps]
+rmse_fno3d = [data['fno3d'][str(i)]['RMSE'] for i in steps]
+mae_fno3d = [data['fno3d'][str(i)]['MAE'] for i in steps]
 
 # Plotting
-fig, axs = plt.subplots(1, 2, figsize=(10, 3.5), sharex=True)
+fig, axs = plt.subplots(1, 2, figsize=(12, 4), sharex=True)
 
 # MAE subplot
-axs[0].plot(indices, mae_flronet, label='FLRONet', marker='o', linestyle='-', color='royalblue', linewidth=1.7, markersize=4.5)
-axs[0].plot(indices, mae_unet, label='UNet', marker='o', linestyle='--', color='firebrick', linewidth=1.7, markersize=4.5)
-axs[0].set_xlabel('#Dropped Sensors', fontsize=16)
-axs[0].set_ylabel('MAE [m/s]', fontsize=16)
-axs[0].tick_params(axis='both', labelsize=14)
-axs[0].legend(fontsize=14, frameon=False)
+axs[0].plot(steps, mae_flronetfno, label='flronet-fno', linestyle='-', color='tab:blue', linewidth=4)
+axs[0].plot(steps, mae_flronetmlp, label='flronet-mlp', linestyle='-', color='tab:green', linewidth=4)
+axs[0].plot(steps, mae_flronetunet, label='flronet-unet', linestyle='-', color='tab:red', linewidth=4)
+axs[0].plot(steps, mae_fno3d, label='fno3d', linestyle='-', color='tab:brown', linewidth=4)
+axs[0].set_xlabel(r'$d$', fontsize=18)
+axs[0].set_ylabel('MAE [m/s]', fontsize=18)
+axs[0].tick_params(axis='both', labelsize=16)
+axs[0].set_ylim(0, None)
+axs[0].legend(fontsize=16, frameon=False)
 axs[0].spines['top'].set_visible(False)
 axs[0].spines['right'].set_visible(False)
 
 # RMSE subplot
-axs[1].plot(indices, rmse_flronet, label='FLRONet', marker='o', linestyle='-', color='royalblue', linewidth=1.7, markersize=4.5)
-axs[1].plot(indices, rmse_unet, label='UNet', marker='o', linestyle='--', color='firebrick', linewidth=1.7, markersize=4.5)
-axs[1].set_xlabel('#Dropped Sensors', fontsize=16)
-axs[1].set_ylabel('RMSE [m/s]', fontsize=16)
-axs[1].tick_params(axis='both', labelsize=14)
-axs[1].legend(fontsize=14, frameon=False)
+axs[1].plot(steps, rmse_flronetfno, label='flronet-fno', linestyle='-', color='tab:blue', linewidth=4)
+axs[1].plot(steps, rmse_flronetmlp, label='flronet-mlp', linestyle='-', color='tab:green', linewidth=4)
+axs[1].plot(steps, rmse_flronetunet, label='flronet-unet', linestyle='-', color='tab:red', linewidth=4)
+axs[1].plot(steps, rmse_fno3d, label='fno3d', linestyle='-', color='tab:brown', linewidth=4)
+axs[1].set_xlabel(r'$d$', fontsize=18)
+axs[1].set_ylabel('RMSE [m/s]', fontsize=18)
+axs[1].tick_params(axis='both', labelsize=16)
+axs[1].set_ylim(0, None)
+axs[1].legend(fontsize=16, frameon=False)
 axs[1].spines['top'].set_visible(False)
 axs[1].spines['right'].set_visible(False)
 

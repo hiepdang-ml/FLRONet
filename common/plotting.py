@@ -5,6 +5,7 @@ import datetime as dt
 import matplotlib
 import matplotlib.pyplot as plt
 import matplotlib.patches as patches
+import colormaps as cmaps
 
 import torch
 import torch.nn.functional as F
@@ -67,24 +68,17 @@ def plot_frame(
     if num_plots == 1:
         axs = [axs]  # Ensure axs is iterable if only one subplot
     
-    # Plot each frame
-    if fullstate_frame is not None:
-        max_value: float = fullstate_frame.max().item()
-    else:
-        max_value: float = max([frame.max().item() for frame in frames_to_plot])
-
-    # max_value *= 0.8    # for better coloring
-    max_value = 8.
+    max_value: float = 11.
     for frame, ax, chart_title in zip(frames_to_plot, axs, chart_titles):
         if chart_title == 'Error':
             norm = matplotlib.colors.Normalize(vmin=-max_value, vmax=max_value)
         else:
             norm = matplotlib.colors.Normalize(vmin=0, vmax=max_value)
 
-        im = ax.imshow(frame.squeeze(dim=0), origin="lower", norm=norm, cmap='seismic')
+        im = ax.imshow(frame.squeeze(dim=0), origin="lower", norm=norm, cmap=cmaps.balance)
         # cbar = ax.figure.colorbar(im, ax=ax, orientation='vertical', fraction=0.046, pad=0.04)
-        cbar = ax.figure.colorbar(im, ax=ax, orientation='vertical', fraction=0.027, pad=0.04)  # for display in report
-        cbar.ax.tick_params(labelsize=10)
+        # cbar = ax.figure.colorbar(im, ax=ax, orientation='vertical', fraction=0.027, pad=0.04)  # for display in report
+        # cbar.ax.tick_params(labelsize=10)
 
         if sensor_positions is not None:
             for sensor_x, sensor_y in sensor_positions:
@@ -111,6 +105,7 @@ def plot_frame(
     if not filename:
         filename: str = f"{timestamp.strftime('%Y%m%d%H%M%S')}{timestamp.microsecond // 1000:03d}"
 
+    # fig.savefig(os.path.join(destination_directory, f'{filename}.png'), dpi=2048)
     fig.savefig(os.path.join(destination_directory, f'{filename}.png'))
     plt.close(fig)
 

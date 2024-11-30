@@ -112,14 +112,15 @@ class FNOBranchNet(nn.Module):
             nn.Linear(in_features=128, out_features=n_channels),
         )
 
-    def forward(self, sensor_value: torch.Tensor, out_resolution: Tuple[int, int]) -> torch.Tensor:
-        batch_size, in_timeframes, n_channels, in_H, in_W = sensor_value.shape
+    def forward(self, sensor_values: torch.Tensor, out_resolution: Tuple[int, int]) -> torch.Tensor:
+        batch_size, in_timeframes, n_channels, in_H, in_W = sensor_values.shape
         assert n_channels == self.n_channels
-        flattened_sensor_value: torch.Tensor = sensor_value.flatten(start_dim=0, end_dim=1)
+        flattened_sensor_value: torch.Tensor = sensor_values.flatten(start_dim=0, end_dim=1)
         # embedding
-        embedding: torch.Tensor = self.embedding_layer(flattened_sensor_value.permute(0, 2, 3, 1)).permute(0, 3, 1, 2)
+        output: torch.Tensor = self.embedding_layer(flattened_sensor_value.permute(0, 2, 3, 1)).permute(0, 3, 1, 2)
         # interpolate embeddings to output resolution
-        output: torch.Tensor = F.interpolate(input=embedding, size=out_resolution) if out_resolution != (in_H, in_W) else embedding
+        if out_resolution != (in_H, in_W):
+            output = F.interpolate(input=output, size=out_resolution)
         # fno
         for i in range(self.n_fno_layers):
             spectral_conv_layer: SpectralConv2d = self.spectral_conv_layers[i]
@@ -160,12 +161,12 @@ class UNetBranchNet(nn.Module):
         # Final convolution
         self.final_conv = nn.Conv2d(in_channels=embedding_dim, out_channels=n_channels, kernel_size=1)
 
-    def forward(self, input: torch.Tensor) -> torch.Tensor:
-        assert input.ndim == 5
-        batch_size, in_timesteps, n_channels, H, W = input.shape
+    def forward(self, sensor_values: torch.Tensor) -> torch.Tensor:
+        assert sensor_values.ndim == 5
+        batch_size, in_timesteps, n_channels, H, W = sensor_values.shape
         assert n_channels == self.n_channels
         # Layer Norm
-        reshaped_input: torch.Tensor = input.flatten(start_dim=0, end_dim=1)
+        reshaped_input: torch.Tensor = sensor_values.flatten(start_dim=0, end_dim=1)
         # Encoder
         enc1: torch.Tensor = self.enc_conv1(reshaped_input)
         enc2: torch.Tensor = self.enc_conv2(self.pool(enc1))
@@ -237,17 +238,17 @@ class MLPBranchNet(nn.Module):
         block4 = nn.Linear(in_features=hidden_dim, out_features=n_channels * self.H * self.W)
         self.blocks = nn.Sequential(block0, block1, block2, block3, block4)
 
-    def forward(self, input: torch.Tensor):
-        assert input.ndim == 4
-        batch_size, in_timesteps, n_channels, n_sensors = input.shape
+    def forward(self, sensor_values: torch.Tensor):
+        assert sensor_values.ndim == 4
+        batch_size, in_timesteps, n_channels, n_sensors = sensor_values.shape
         assert n_channels == self.n_channels
         assert n_sensors == self.n_sensors
         
-        output: torch.Tensor = input.flatten(start_dim=2, end_dim=3)
+        output: torch.Tensor = sensor_values.flatten(start_dim=2, end_dim=3)
         assert output.shape == (batch_size, in_timesteps, n_channels * n_sensors)
         output = self.blocks(output)
         assert output.shape == (batch_size, in_timesteps, n_channels * self.H * self.W)
-        return output
+        return output.reshape(batch_size, in_timesteps, n_channels, self.H, self.W)
     
 
 class SinusoidEmbedding(nn.Module):
@@ -328,7 +329,7 @@ class _BaseFLRONet(nn.Module):
         sensor_timeframes: torch.Tensor, 
         sensor_values: torch.Tensor, 
         fullstate_timeframes: torch.Tensor, 
-        out_resolution: Tuple[int, int],
+        out_resolution: Tuple[int, int] | None = None,
     ) -> torch.Tensor:
         assert sensor_timeframes.ndim == fullstate_timeframes.ndim == 2
         assert sensor_timeframes.shape[0] == sensor_values.shape[0] == fullstate_timeframes.shape[0]
@@ -338,12 +339,20 @@ class _BaseFLRONet(nn.Module):
             assert sensor_values.ndim == 4
             n_sensors: int = sensor_values.shape[-1]
             assert sensor_values.shape == (batch_size, n_sensor_timeframes, self.n_channels, n_sensors)
+            in_H, in_W = self.resolution
         else:
             assert sensor_values.ndim == 5
             in_H, in_W = sensor_values.shape[-2:]
             assert sensor_values.shape == (batch_size, n_sensor_timeframes, self.n_channels, in_H, in_W)
 
-        out_H, out_W = out_resolution
+        if isinstance(self, (FLRONetMLP, FLRONetUNet)):
+            assert out_resolution is None, f'{self.__class__.__name__} cannot do super resolution'
+            out_H, out_W = in_H, in_W
+        elif out_resolution is None:
+            out_H, out_W = in_H, in_W
+        else:
+            out_H, out_W = out_resolution
+
         # TrunkNet
         fullstate_time_embeddings: torch.Tensor = self.sinusoid_embedding(timeframes=fullstate_timeframes)
         sensor_time_embeddings: torch.Tensor = self.sinusoid_embedding(timeframes=sensor_timeframes)
@@ -357,9 +366,9 @@ class _BaseFLRONet(nn.Module):
         for i in range(self.n_stacked_networks):
             branch_net: FNOBranchNet | UNetBranchNet | MLPBranchNet = self.branch_nets[i]
             if isinstance(branch_net, FNOBranchNet):
-                branch_output: torch.Tensor = branch_net(sensor_value=sensor_values, out_resolution=out_resolution)
+                branch_output: torch.Tensor = branch_net(sensor_values=sensor_values, out_resolution=(out_H, out_W))
             else:
-                branch_output: torch.Tensor = branch_net(sensor_value=sensor_values)
+                branch_output: torch.Tensor = branch_net(sensor_values=sensor_values)
             assert branch_output.shape == (batch_size, n_sensor_timeframes, self.n_channels, out_H, out_W)
             branch_outputs.append(branch_output)
 

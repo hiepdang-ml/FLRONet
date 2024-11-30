@@ -34,6 +34,10 @@ def main(config: Dict[str, Any]) -> None:
     checkpoint_loader = CheckpointLoader(checkpoint_path=from_checkpoint)
     net: FLRONetFNO | FLRONetUNet | FLRONetMLP | FNO3D = checkpoint_loader.load(scope=globals())
 
+    if isinstance(net, FNO3D):
+        init_fullstate_timeframes: List[int] = list(range(min(init_sensor_timeframes), max(init_sensor_timeframes) + 1))
+        n_fullstate_timeframes_per_chunk: int = len(init_fullstate_timeframes)
+
     # Instatiate the training datasets
     if n_dropout_sensors == 0:
         implied_dropout_probabilities: List[float] = []
@@ -52,7 +56,7 @@ def main(config: Dict[str, Any]) -> None:
         noise_level=noise_level,
         sensor_generator=sensor_generator, 
         embedding_generator=embedding_generator,
-        init_fullstate_timeframes=init_fullstate_timeframes if isinstance(net, FLRONetFNO) else init_sensor_timeframes,
+        init_fullstate_timeframes=init_fullstate_timeframes,
         seed=seed,
     )
     

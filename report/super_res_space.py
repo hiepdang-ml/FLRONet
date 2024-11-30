@@ -1,36 +1,44 @@
 import matplotlib.pyplot as plt
 
 scales = ['1x', '2x', '4x', '8x']
-tesla_v100 = [0.29, 0.35, 0.5, 0.95]
-a100 = [0.17, 0.22, 0.33, 0.6]
+flronet_v100 = [0.14, 0.17, 0.25, 0.47]
+flronet_a100 = [0.09, 0.11, 0.16, 0.3]
 
-# Create the figure
-plt.figure(figsize=(7, 3.5))
+fno3d_v100 = [0.17, 0.21, 0.28, 0.51]
+fno3d_a100 = [0.11, 0.13, 0.17, 0.32]
 
-# Convert scales to positions
-positions = [float(x.replace('x','')) for x in scales]
+positions = [float(x.replace('x', '')) for x in scales]
 
-# Plotting the data
-plt.plot(positions, tesla_v100, marker='s', linestyle='--', color='firebrick', label="Tesla V100", linewidth=2.5, markersize=8)
-plt.plot(positions, a100, marker='s', linestyle='--', color='royalblue', label="A100 SXM4", linewidth=2.5, markersize=8)
+fig, axs = plt.subplots(1, 2, figsize=(10, 3.5))
 
-# Add labels and ticks
-plt.xlabel("Scale", fontsize=18, labelpad=10)
-plt.ylabel("Inference Time [s]", fontsize=18, labelpad=10)
-plt.xticks(positions, scales, fontsize=16)  # Map positions to scales
-plt.yticks(fontsize=16)
+# V100 subplot
+axs[0].plot(positions, flronet_v100, marker='s', linestyle='-', color='tab:blue', label="flronet-fno", linewidth=2, markersize=6)
+axs[0].plot(positions, fno3d_v100, marker='s', linestyle='-', color='tab:red', label="fno3d", linewidth=2, markersize=6)
+axs[0].set_title("Tesla V100", fontsize=18)
+axs[0].set_xlabel("Scale", fontsize=16, labelpad=10)
+axs[0].set_ylabel("Inference Time [s]", fontsize=18, labelpad=10)
+axs[0].set_xticks(positions)
+axs[0].set_xticklabels(scales, fontsize=14)
+axs[0].tick_params(axis='both', which='major', length=6, width=1.3, labelsize=14)
+axs[0].legend(fontsize=14, frameon=False)
+axs[0].spines['top'].set_visible(False)
+axs[0].spines['right'].set_visible(False)
+axs[0].spines['left'].set_linewidth(1.3)
+axs[0].spines['bottom'].set_linewidth(1.3)
 
-# Add legend
-plt.legend(fontsize=16, frameon=False)
+# A100 subplot
+axs[1].plot(positions, flronet_a100, marker='s', linestyle='-', color='tab:blue', label="flronet-fno", linewidth=2, markersize=6)
+axs[1].plot(positions, fno3d_a100, marker='s', linestyle='-', color='tab:red', label="fno3d", linewidth=2, markersize=6)
+axs[1].set_title("A100 SXM4", fontsize=18)
+axs[1].set_xlabel("Scale", fontsize=16, labelpad=10)
+axs[1].set_xticks(positions)
+axs[1].set_xticklabels(scales, fontsize=14)
+axs[1].tick_params(axis='both', which='major', length=6, width=1.3, labelsize=14)
+axs[1].legend(fontsize=14, frameon=False)
+axs[1].spines['top'].set_visible(False)
+axs[1].spines['right'].set_visible(False)
+axs[1].spines['left'].set_linewidth(1.3)
+axs[1].spines['bottom'].set_linewidth(1.3)
 
-# Customize spines
-ax = plt.gca()  # Get the current axis
-ax.spines['top'].set_visible(False)
-ax.spines['right'].set_visible(False)
-ax.spines['left'].set_linewidth(1.3)
-ax.spines['bottom'].set_linewidth(1.3)
-ax.tick_params(axis='both', which='major', length=6, width=1.3)
-
-# Tight layout and save
-plt.tight_layout(pad=0.5)
+plt.tight_layout()
 plt.savefig('report/super_res_space.png', dpi=300)

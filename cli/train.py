@@ -47,10 +47,16 @@ def main(config: Dict[str, Any]) -> None:
     freeze_bias: bool                           = bool(config['training']['freeze_bias'])
 
     # Dataset
+    if model_name.lower() == 'fno3d':
+        n_fullstate_timeframes_per_chunk = len(init_sensor_timeframes)
+        init_fullstate_timeframes = init_sensor_timeframes
+    else:
+        init_fullstate_timeframes = None
+
     train_dataset = CFDDataset(
         root='./data/train', 
-        init_sensor_timeframes=init_sensor_timeframes,
-        n_fullstate_timeframes_per_chunk=n_fullstate_timeframes_per_chunk if model_name.lower().startswith('fllronet') else len(init_sensor_timeframes),
+        init_sensor_timeframes=init_sensor_timeframes, 
+        n_fullstate_timeframes_per_chunk=n_fullstate_timeframes_per_chunk,
         n_samplings_per_chunk=n_samplings_per_chunk,
         resolution=resolution,
         n_sensors=n_sensors,
@@ -58,13 +64,13 @@ def main(config: Dict[str, Any]) -> None:
         noise_level=0.,
         sensor_generator=sensor_generator, 
         embedding_generator=embedding_generator,
-        init_fullstate_timeframes=None if model_name.lower().startswith('fllronet') else init_sensor_timeframes,
+        init_fullstate_timeframes=init_fullstate_timeframes,
         seed=seed,
     )
     val_dataset = CFDDataset(
         root='./data/test', 
         init_sensor_timeframes=init_sensor_timeframes,
-        n_fullstate_timeframes_per_chunk=n_fullstate_timeframes_per_chunk if model_name.lower().startswith('fllronet') else len(init_sensor_timeframes),
+        n_fullstate_timeframes_per_chunk=n_fullstate_timeframes_per_chunk,
         n_samplings_per_chunk=n_samplings_per_chunk,
         resolution=resolution,
         n_sensors=n_sensors,
@@ -72,7 +78,7 @@ def main(config: Dict[str, Any]) -> None:
         noise_level=0.,
         sensor_generator=sensor_generator, 
         embedding_generator=embedding_generator,
-        init_fullstate_timeframes=None if model_name.lower().startswith('fllronet') else init_sensor_timeframes,
+        init_fullstate_timeframes=init_fullstate_timeframes,
         seed=seed,
     )
 
@@ -86,7 +92,6 @@ def main(config: Dict[str, Any]) -> None:
             net = FLRONetFNO(
                 n_channels=n_channels, n_fno_layers=n_fno_layers, 
                 n_hmodes=n_hmodes, n_wmodes=n_wmodes, embedding_dim=embedding_dim,
-                total_timeframes=train_dataset.total_timeframes_per_case,
                 n_stacked_networks=n_stacked_networks,
             ).cuda()
 

@@ -37,13 +37,17 @@ def main(config: Dict[str, Any]) -> None:
     predictor.predict_from_scratch(
         case_dir=case_dir,
         sensor_timeframes=sensor_timeframes,
-        reconstruction_timeframes=reconstruction_timeframes,
+        reconstruction_timeframes=(
+            list(range(min(sensor_timeframes), max(sensor_timeframes) + 1)) 
+            if isinstance(net, FNO3D) 
+            else reconstruction_timeframes
+        ),
         sensor_position_path=sensor_position_path,
         embedding_generator=embedding_generator,
         n_dropout_sensors=n_dropout_sensors,
         noise_level=noise_level,
         in_resolution=trained_resolution,
-        out_resolution=out_resolution if isinstance(net, FLRONetFNO) else None,
+        out_resolution=out_resolution if isinstance(net, (FLRONetFNO, FNO3D)) else None,
     )
 
 if __name__ == "__main__":

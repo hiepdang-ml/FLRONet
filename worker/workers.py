@@ -9,7 +9,6 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch.utils.data import DataLoader
 from torch.optim import Adam
-from torch.amp import autocast, GradScaler
 
 from common.training import Accumulator, EarlyStopping, Timer, Logger, CheckpointSaver
 from cfd.dataset import CFDDataset, DatasetMixin
@@ -78,7 +77,6 @@ class Trainer(Worker):
         self.val_dataloader = DataLoader(dataset=val_dataset, batch_size=val_batch_size, shuffle=False)
         self.loss_function: nn.Module = nn.MSELoss(reduction='sum')
 
-        self.grad_scaler = GradScaler(device="cuda")
         if torch.cuda.device_count() > 1:
             self.net = nn.DataParallel(self.net).cuda()
         elif torch.cuda.device_count() == 1:
@@ -114,27 +112,22 @@ class Trainer(Worker):
                 # Data validation
                 self._validate_inputs(sensor_timeframes, sensor_frames, fullstate_timeframes, fullstate_frames)
                 self.optimizer.zero_grad()
-                # Use automatic mixed precision to speed up on A100/H100 GPUs
-                with autocast(device_type="cuda", dtype=torch.float16):
+                if isinstance(self.net, (FLRONetFNO, FLRONetMLP, FLRONetUNet)):
                     # Forward propagation
-                    if isinstance(self.net, FLRONetFNO):
-                        reconstruction_frames: torch.Tensor = self.net(
-                            sensor_timeframes=sensor_timeframes,
-                            sensor_values=sensor_frames,
-                            fullstate_timeframes=fullstate_timeframes,
-                            out_resolution=self.train_dataset.resolution,
-                        )
-                    else:
-                        reconstruction_frames: torch.Tensor = self.net(input=sensor_frames)
-                    # Compute loss
-                    total_mse: torch.Tensor = self.loss_function(input=reconstruction_frames, target=fullstate_frames)
-                    mean_mse: torch.Tensor = total_mse / reconstruction_frames.numel()
+                    reconstruction_frames: torch.Tensor = self.net(
+                        sensor_timeframes=sensor_timeframes,
+                        sensor_values=sensor_frames,
+                        fullstate_timeframes=fullstate_timeframes,
+                        out_resolution=None,
+                    )
+                else:
+                    reconstruction_frames: torch.Tensor = self.net(sensor_values=sensor_frames, out_resolution=None)
 
-                # Backpropagation
-                self.grad_scaler.scale(mean_mse).backward()
-                self.grad_scaler.step(self.optimizer)
-                self.grad_scaler.update()
-
+                # Compute loss
+                total_mse: torch.Tensor = self.loss_function(input=reconstruction_frames, target=fullstate_frames)
+                mean_mse: torch.Tensor = total_mse / reconstruction_frames.numel()
+                mean_mse.backward()
+                self.optimizer.step()
                 # Accumulate the metrics
                 train_metrics.add(total_mse=total_mse.item(), n_elems=reconstruction_frames.numel())
                 timer.end_batch(epoch=epoch)
@@ -181,20 +174,18 @@ class Trainer(Worker):
                 # Data validation
                 self._validate_inputs(sensor_timeframes, sensor_frames, fullstate_timeframes, fullstate_frames)
                 # Forward propagation
-                with autocast(device_type="cuda", dtype=torch.float16):
-                    # Forward propagation
-                    if isinstance(self.net, FLRONetFNO):
-                        reconstruction_frames: torch.Tensor = self.net(
-                            sensor_timeframes=sensor_timeframes,
-                            sensor_values=sensor_frames,
-                            fullstate_timeframes=fullstate_timeframes,
-                            out_resolution=self.train_dataset.resolution,
-                        )
-                    else:
-                        reconstruction_frames: torch.Tensor = self.net(input=sensor_frames)
-                    # Compute total loss
-                    total_mse: torch.Tensor = self.loss_function(input=reconstruction_frames, target=fullstate_frames)
+                if isinstance(self.net, (FLRONetFNO, FLRONetMLP, FLRONetUNet)):
+                    reconstruction_frames: torch.Tensor = self.net(
+                        sensor_timeframes=sensor_timeframes,
+                        sensor_values=sensor_frames,
+                        fullstate_timeframes=fullstate_timeframes,
+                        out_resolution=None,
+                    )
+                else:
+                    reconstruction_frames: torch.Tensor = self.net(sensor_values=sensor_frames, out_resolution=None)
 
+                # Compute total loss
+                total_mse: torch.Tensor = self.loss_function(input=reconstruction_frames, target=fullstate_frames)
                 # Accumulate the val_metrics
                 val_metrics.add(total_mse=total_mse.item(), n_elems=reconstruction_frames.numel())
 
@@ -215,7 +206,7 @@ class Predictor(Worker, DatasetMixin):
         self, 
         case_dir: str, 
         sensor_timeframes: List[int],
-        reconstruction_timeframes: List[int],
+        reconstruction_timeframes: List[float],
         sensor_position_path: str, 
         embedding_generator: Literal['Voronoi', 'Mask', 'Vector'],
         n_dropout_sensors: int,
@@ -229,8 +220,10 @@ class Predictor(Worker, DatasetMixin):
         assert max(reconstruction_timeframes) <= max(sensor_timeframes)
         n_sensor_timeframes: int = len(sensor_timeframes)
         n_fullstate_timeframes: int = len(reconstruction_timeframes)
+        max_sensor_timeframe: int = max(sensor_timeframes)
+        min_sensor_timeframe: int = min(sensor_timeframes)
         in_H, in_W = in_resolution
-        
+        available_fullstate_timeframes: List[int | None] = [int(t) if t == int(t) else None for t in reconstruction_timeframes]
         # prepare reconstruction timeframes
         reconstruction_timeframes: torch.Tensor = torch.tensor(reconstruction_timeframes, dtype=torch.float, device='cuda')
         reconstruction_timeframes = reconstruction_timeframes.unsqueeze(dim=0)
@@ -272,51 +265,60 @@ class Predictor(Worker, DatasetMixin):
         n_sensors: int = embedding_generator.S
         n_active_sensors: int = n_sensors - n_dropout_sensors
 
+        # Just for plotting fullstate frame (if available) at reconstruction time t
+        available_fullstate_frames: List[torch.Tensor | None] = []
+        for t in available_fullstate_timeframes:
+            if t is not None and (out_resolution is None or out_resolution == (in_H, in_W)): # not doing super-res and t has groundtruth
+                fullstate_frame: torch.Tensor = data[[t]]
+                # resize (original resolution is 64 x 64, which is not proportional to 0.14m x 0.24m)
+                fullstate_frame = F.interpolate(input=fullstate_frame, size=in_resolution, mode='bicubic')
+                available_fullstate_frames.append(fullstate_frame.squeeze(0))
+            else:
+                available_fullstate_frames.append(None)
+
         self.net.eval()
         with torch.no_grad():
             # reconstruct
-            with autocast(device_type="cuda", dtype=torch.float16):
-                # Forward propagation
-                if isinstance(self.net, FLRONetFNO):
-                    reconstruction_frames: torch.Tensor = self.net(
-                        sensor_timeframes=sensor_timeframes,
-                        sensor_values=sensor_frames,
-                        fullstate_timeframes=reconstruction_timeframes,
-                        out_resolution=out_resolution,
-                    )
-                    out_H, out_W = out_resolution
-                    assert reconstruction_frames.shape == (1, n_fullstate_timeframes, self.net.n_channels, out_H, out_W)
-                else:
-                    reconstruction_frames: torch.Tensor = self.net(input=sensor_frames)
-                    assert reconstruction_frames.shape == (1, n_fullstate_timeframes, self.net.n_channels, in_H, in_W)
+            if isinstance(self.net, (FLRONetFNO, FLRONetMLP, FLRONetUNet)):
+                reconstruction_frames: torch.Tensor = self.net(
+                    sensor_timeframes=sensor_timeframes,
+                    sensor_values=sensor_frames,
+                    fullstate_timeframes=reconstruction_timeframes,
+                    out_resolution=out_resolution,
+                )
+            else:
+                reconstruction_frames: torch.Tensor = self.net(
+                    sensor_values=sensor_frames, 
+                    out_resolution=(max_sensor_timeframe - min_sensor_timeframe, *out_resolution),
+                )
+            # (1, n_fullstate_timeframes, self.net.n_channels, out_H, out_W)
 
         # visualization
         reconstruction_frames = reconstruction_frames.squeeze(dim=0)
         reconstruction_timeframes = reconstruction_timeframes.squeeze(dim=0)
         case_name: str = os.path.basename(case_dir)
         for frame_idx in tqdm(range(reconstruction_frames.shape[0]), desc=f'{case_name}: '):
+            available_fullstate_frame: torch.Tensor | None = available_fullstate_frames[frame_idx]
             reconstruction_frame: torch.Tensor = reconstruction_frames[frame_idx]
             at_timeframe = float(reconstruction_timeframes[frame_idx].item())
-            if isinstance(self.net, FLRONetFNO):
-                new_sensor_position: torch.Tensor = torch.zeros_like(original_sensor_positions, dtype=torch.float)
+            if out_resolution is not None and out_resolution != (in_H, in_W):  # super-resolution
+                out_H, out_W = out_resolution
+                new_sensor_position = torch.zeros_like(original_sensor_positions, dtype=torch.float)
                 new_sensor_position[:, 0] = original_sensor_positions[:, 0] * out_H / in_H
                 new_sensor_position[:, 1] = original_sensor_positions[:, 1] * out_W / in_W
                 new_sensor_position = new_sensor_position.int()
-                plot_frame(
-                    sensor_positions=new_sensor_position,
-                    reconstruction_frame=reconstruction_frame,
-                    reduction=lambda x: compute_velocity_field(x, dim=0),
-                    title=f'{case_name.upper()} t={at_timeframe * 0.001}s. active sensors: {str(n_active_sensors).zfill(2)}/{str(n_sensors).zfill(2)}',
-                    filename=f'{self.model_name}_{case_name.lower()}_f{str(at_timeframe).replace(".","")}_d{n_dropout_sensors}_n{int(noise_level*100)}_{out_H}x{out_W}'
-                )
             else:
-                plot_frame(
-                    sensor_positions=original_sensor_positions,
-                    reconstruction_frame=reconstruction_frame,
-                    reduction=lambda x: compute_velocity_field(x, dim=0),
-                    title=f'{case_name.upper()} t={at_timeframe * 0.001}s. active sensors: {str(n_active_sensors).zfill(2)}/{str(n_sensors).zfill(2)}',
-                    filename=f'{self.model_name}_{case_name.lower()}_f{str(at_timeframe).replace(".","")}_d{n_dropout_sensors}_n{int(noise_level*100)}_{in_H}x{in_W}',
-                )
+                out_H, out_W = in_H, in_W
+                new_sensor_position = original_sensor_positions
+            
+            plot_frame(
+                reconstruction_frame=reconstruction_frame,
+                fullstate_frame=available_fullstate_frame,
+                reduction=lambda x: compute_velocity_field(x, dim=0),
+                title=f'{case_name.upper()} t={at_timeframe * 0.001}s. active sensors: {str(n_active_sensors).zfill(2)}/{str(n_sensors).zfill(2)}',
+                filename=f'{self.model_name}_{case_name.lower()}_f{str(at_timeframe).replace(".","")}_d{n_dropout_sensors}_n{int(noise_level*100)}_{out_H}x{out_W}',
+            )
+
 
     def predict_from_dataset(self, dataset: CFDDataset) -> None:
         self._validate_embedding_generator(embedding_generator=dataset.embedding_generator)
@@ -330,29 +332,36 @@ class Predictor(Worker, DatasetMixin):
         mae_values: List[float] = []
         with torch.no_grad():
             for sensor_timeframes, sensor_frames, fullstate_timeframes, fullstate_frames, case_names, sampling_ids in tqdm(dataloader):
+                assert len(case_names) == len(sampling_ids) == 1
+                case_name: str = case_names[0]
+                sampling_id: int = sampling_ids[0]
                 # Data validation
                 self._validate_inputs(sensor_timeframes, sensor_frames, fullstate_timeframes, fullstate_frames)
                 # Forward propagation
-                with autocast(device_type="cuda", dtype=torch.float16):
-                    # Forward propagation
-                    if isinstance(self.net, FLRONetFNO):
-                        reconstruction_frames: torch.Tensor = self.net(
-                            sensor_timeframes=sensor_timeframes,
-                            sensor_values=sensor_frames,
-                            fullstate_timeframes=fullstate_timeframes,
-                            out_resolution=dataset.resolution,
-                        )
-                    else:
-                        print(sensor_frames.shape)
-                        reconstruction_frames: torch.Tensor = self.net(input=sensor_frames)
+                if isinstance(self.net, (FLRONetFNO, FLRONetMLP, FLRONetUNet)):
+                    reconstruction_frames: torch.Tensor = self.net(
+                        sensor_timeframes=sensor_timeframes,
+                        sensor_values=sensor_frames,
+                        fullstate_timeframes=fullstate_timeframes,
+                        out_resolution=None,
+                    )
+                else:
+                    reconstruction_frames: torch.Tensor = self.net(
+                        sensor_values=sensor_frames, 
+                        out_resolution=(sensor_timeframes.max().item() - sensor_timeframes.min().item() + 1, *dataset.resolution),
+                    )
 
                 # Visualization
                 sensor_frames = sensor_frames.squeeze(dim=0)
+                sensor_timeframes = sensor_timeframes.squeeze(dim=0)
                 reconstruction_frames = reconstruction_frames.squeeze(dim=0)
                 fullstate_frames = fullstate_frames.squeeze(dim=0)
                 fullstate_timeframes = fullstate_timeframes.squeeze(dim=0)
-                for frame_idx in range(fullstate_timeframes.shape[0]):
-                    sensor_frame: torch.Tensor = sensor_frames[frame_idx]
+                for frame_idx, timeframe in enumerate(fullstate_timeframes):
+                    if isinstance(self.net, FLRONetMLP) or timeframe not in sensor_timeframes:
+                        sensor_frame = None
+                    else:
+                        sensor_frame: torch.Tensor = sensor_frames[sensor_timeframes == timeframe].squeeze(0) # universally true
                     reconstruction_frame: torch.Tensor = reconstruction_frames[frame_idx]
                     fullstate_frame: torch.Tensor = fullstate_frames[frame_idx]
                     frame_total_mse: torch.Tensor = self.rmse(
@@ -367,10 +376,7 @@ class Predictor(Worker, DatasetMixin):
                     )
                     frame_mean_mae: float = frame_total_mae.item() / fullstate_frame.numel()
                     at_timeframe = int(fullstate_timeframes[frame_idx].item())
-                    case_name: str = case_names[frame_idx]
-                    sampling_id: int = sampling_ids[frame_idx]
                     plot_frame(
-                        sensor_positions=dataset.sensor_positions,
                         sensor_frame=None if isinstance(self.net, FLRONetMLP) else sensor_frame,   # does not plot sensor frame if MLP 
                         fullstate_frame=fullstate_frame, 
                         reconstruction_frame=reconstruction_frame,

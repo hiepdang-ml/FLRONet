@@ -1,6 +1,6 @@
 dataset:
   init_sensor_timeframes: [0, 5, 10, 15, 20]
-  n_fullstate_timeframes_per_chunk: 1
+  n_fullstate_timeframes_per_chunk: 1   # not for FNO3D
   n_samplings_per_chunk: 1
   resolution: [140, 240]
   n_sensors: 32
@@ -10,10 +10,7 @@ dataset:
   seed: 1
 
 architecture:
-  # momdel_name: 'flronet-fno'    # flronet-fno | flronet-unet | flronet-mlp | fno3d
-  # momdel_name: 'flronet-unet' # flronet-fno | flronet-unet | flronet-mlp | fno3d
-  # momdel_name: 'flronet-mlp'  # flronet-fno | flronet-unet | flronet-mlp | fno3d
-  momdel_name: 'fno3d'        # flronet-fno | flronet-unet | flronet-mlp | fno3d
+  momdel_name: 'flronet-fno'  # flronet-fno | flronet-unet | flronet-mlp | fno3d
   # General configs:
   n_channels: 2   # fixed for 2d problems
   embedding_dim: 64
@@ -27,10 +24,9 @@ architecture:
   n_stacked_networks: 2
 
 training:
-  # from_checkpoint: 'best_flronet/flronet15.pt' # set to null to train from scratch
   from_checkpoint: null # set to null to train from scratch
   train_batch_size: 8
-  val_batch_size: 1
+  val_batch_size: 2
   learning_rate: 1e-4
   n_epochs: 100
   patience: 5
@@ -42,23 +38,24 @@ training:
   freeze_bias: false
 
 evaluate:
-  # from_checkpoint: 'best_flronet/flronet13.pt'
-  from_checkpoint: 'best_flronet/flronet15.pt'
-  # from_checkpoint: 'best_unet/unet12.pt'
+  # from_checkpoint: 'best_fno3d/fno3d9.pt'
+  from_checkpoint: 'best_flronet/flronetfno3.pt'
+  # from_checkpoint: 'best_flronetmlp/flronetmlp12.pt'
+  # from_checkpoint: 'best_flronetunet/flronetunet16.pt'
   n_dropout_sensors: 0
   noise_level: 0.
-  init_fullstate_timeframes: [10] # FLRONet-specific, set to null to randomly generate the fullstate frames with the same random seed at training 
+  init_fullstate_timeframes: [15] # FLRONet-specific, set to null to randomly generate the fullstate frames with the same random seed at training 
 
 inference:
-  from_checkpoint: 'best_flronet/flronet13.pt'
-  case_dir: 'data/test/case0038'
-  sensor_timeframes: [180, 185, 190, 195, 200]
-  reconstruction_timeframes: [180]
+  from_checkpoint: 'best_flronet/flronetfno3.pt'
+  case_dir: 'data/test/case0041'
+  sensor_timeframes: [165, 170, 175, 180, 185]
+  reconstruction_timeframes: [175.8]  # not for FNO3D
   sensor_position_path: 'tensors/test/sensor_positions/pos.pt'
   n_dropout_sensors: 0
   noise_level: 0.
-  out_resolution: [140, 240]
+  # out_resolution: [140, 240]
   # out_resolution: [280, 480]
   # out_resolution: [560, 960]
-  # out_resolution: [1120, 1920]
+  out_resolution: [1120, 1920]
 

@@ -2,6 +2,7 @@ from typing import Tuple, List
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from torch.amp import autocast
 
 
 class SpectralConv3d(nn.Module):
@@ -34,8 +35,8 @@ class SpectralConv3d(nn.Module):
         padded_input = padded_input.permute(0, 1, 3, 4, 2)  # n_frames, embedding_dim, H, W, T
         # FFT
         fourier_coeff: torch.Tensor = torch.fft.rfftn(padded_input, dim=(2, 3, 4), norm="ortho")
-        output_real = torch.zeros_like(fourier_coeff.real)
-        output_imag = torch.zeros_like(fourier_coeff.imag)
+        output_real = torch.zeros((n_frames, embedding_dim, H, W, T), device='cuda')
+        output_imag = torch.zeros((n_frames, embedding_dim, H, W, T), device='cuda')
 
         slice0: Tuple[slice, slice, slice, slice, slice] = (
             slice(None), slice(None),
@@ -103,7 +104,7 @@ class SpectralConv3d(nn.Module):
         weights_real: torch.Tensor,
         weights_imag: torch.Tensor,
     ) -> Tuple[torch.Tensor, torch.Tensor]:
-        ops: str = 'ndhw,iodhw->nodhw'
+        ops: str = 'nihwt,iohwt->nohwt'
         real_part: torch.Tensor = (
             torch.einsum(ops, input_real, weights_real) - torch.einsum(ops, input_imag, weights_imag)
         )
@@ -151,14 +152,19 @@ class FNO3D(nn.Module):
             nn.Linear(in_features=128, out_features=n_channels),
         )
 
-    def forward(self, sensor_value: torch.Tensor, out_resolution: Tuple[int, int, int]) -> torch.Tensor:
-        batch_size, in_T, n_channels, in_H, in_W = sensor_value.shape
+    def forward(self, sensor_values: torch.Tensor, out_resolution: Tuple[int, int, int] | None = None) -> torch.Tensor:
+        batch_size, in_T, n_channels, in_H, in_W = sensor_values.shape
         assert n_channels == self.n_channels
         # embedding
-        embedding: torch.Tensor = self.embedding_layer(sensor_value.permute(0, 1, 3, 4, 2)).permute(0, 4, 1, 2, 3)
-        assert embedding.shape == (batch_size, embedding, in_T, in_H, in_W)
+        output: torch.Tensor = self.embedding_layer(sensor_values.permute(0, 1, 3, 4, 2)).permute(0, 4, 1, 2, 3)
+        assert output.shape == (batch_size, self.embedding_dim, in_T, in_H, in_W)
+
         # interpolate embeddings to output resolution
-        output: torch.Tensor = F.interpolate(input=embedding, size=out_resolution) if out_resolution != (in_T, in_H, in_W) else embedding
+        if out_resolution is not None:
+            output = F.interpolate(input=output, size=out_resolution)
+            out_T, out_H, out_W = out_resolution
+        else:
+            out_T, out_H, out_W = in_T, in_H, in_W
         # fno
         for i in range(self.n_fno_layers):
             spectral_conv_layer: SpectralConv3d = self.spectral_conv_layers[i]
@@ -171,7 +177,6 @@ class FNO3D(nn.Module):
 
         # decoding
         output = self.decoder(output.permute(0, 2, 3, 4, 1)).permute(0, 1, 4, 2, 3)
-        out_T, out_H, out_W = out_resolution
         output = output.reshape(batch_size, out_T, n_channels, out_H, out_W)
         return output
     

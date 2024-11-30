@@ -33,7 +33,7 @@ plot_data = pd.DataFrame({
 sns.set_theme(style="whitegrid")
 
 # Initialize the figure
-fig, axs = plt.subplots(1, 2, figsize=(12, 3))
+fig, axs = plt.subplots(1, 2, figsize=(16, 3.5))
 
 # MAE Catplot
 sns.boxplot(
@@ -43,15 +43,15 @@ sns.boxplot(
 )
 axs[0].set_xlabel("Step", fontsize=18)
 axs[0].set_ylabel("MAE [m/s]", fontsize=18)
-axs[0].tick_params(axis='x', labelsize=12)
-axs[0].tick_params(axis='y', labelsize=12)
+axs[0].tick_params(axis='x', labelsize=16)
+axs[0].tick_params(axis='y', labelsize=16)
 axs[0].grid(False)
 
 for i, patch in enumerate(axs[0].patches):
     if i in {0, 5, 10, 15, 20}:
-        patch.set_facecolor('red')
+        patch.set_facecolor('tab:red')
     else:
-        patch.set_facecolor('dodgerblue')
+        patch.set_facecolor('tab:blue')
     patch.set_edgecolor('black')
     patch.set_linewidth(1.5)
 
@@ -68,15 +68,15 @@ sns.boxplot(
 )
 axs[1].set_xlabel("Step", fontsize=18)
 axs[1].set_ylabel("RMSE [m/s]", fontsize=18)
-axs[1].tick_params(axis='x', labelsize=12)
-axs[1].tick_params(axis='y', labelsize=12)
+axs[1].tick_params(axis='x', labelsize=16)
+axs[1].tick_params(axis='y', labelsize=16)
 axs[1].grid(False)
 
 for i, patch in enumerate(axs[1].patches):
     if i in {0, 5, 10, 15, 20}:
         patch.set_facecolor('red')
     else:
-        patch.set_facecolor('dodgerblue')
+        patch.set_facecolor('tab:blue')
     patch.set_edgecolor('black')
     patch.set_linewidth(1.5)
 
