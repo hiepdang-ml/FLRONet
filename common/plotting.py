@@ -68,7 +68,7 @@ def plot_frame(
     if num_plots == 1:
         axs = [axs]  # Ensure axs is iterable if only one subplot
     
-    max_value: float = 11.
+    max_value: float = 10.
     for frame, ax, chart_title in zip(frames_to_plot, axs, chart_titles):
         if chart_title == 'Error':
             norm = matplotlib.colors.Normalize(vmin=-max_value, vmax=max_value)

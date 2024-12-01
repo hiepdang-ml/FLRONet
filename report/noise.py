@@ -27,10 +27,11 @@ axs[0].plot(noise_levels, mae_fno3d, color='tab:brown', label='fno3d', linewidth
 axs[0].set_xlabel(r'$\epsilon$', fontsize=18)
 axs[0].set_ylabel('MAE [m/s]', fontsize=18)
 axs[0].tick_params(axis='both', labelsize=16)
-axs[0].set_xticks(noise_levels)
-axs[0].set_xticklabels([f"{int(level * 100)}%" for level in noise_levels])
+filtered_levels = [level for level in noise_levels if (level * 100) % 5 == 0]
+axs[0].set_xticks(filtered_levels)
+axs[0].set_xticklabels([f"{int(level * 100)}%" for level in filtered_levels])
 axs[0].legend(fontsize=16, frameon=False)
-axs[0].set_ylim(0, 0.3)
+axs[0].set_ylim(0, 0.5)
 axs[0].spines['top'].set_visible(False)
 axs[0].spines['right'].set_visible(False)
 
@@ -42,10 +43,11 @@ axs[1].plot(noise_levels, rmse_fno3d, color='tab:brown', label='fno3d', linewidt
 axs[1].set_xlabel(r'$\epsilon$', fontsize=18)
 axs[1].set_ylabel('RMSE [m/s]', fontsize=18)
 axs[1].tick_params(axis='both', labelsize=16)
-axs[1].set_xticks(noise_levels)
-axs[1].set_xticklabels([f"{int(level * 100)}%" for level in noise_levels])
+filtered_levels = [level for level in noise_levels if (level * 100) % 5 == 0]
+axs[1].set_xticks(filtered_levels)
+axs[1].set_xticklabels([f"{int(level * 100)}%" for level in filtered_levels])
 axs[1].legend(fontsize=16, frameon=False)
-axs[1].set_ylim(0, 0.4)
+axs[1].set_ylim(0, 0.7)
 axs[1].spines['top'].set_visible(False)
 axs[1].spines['right'].set_visible(False)
 

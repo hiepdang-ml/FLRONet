@@ -44,13 +44,13 @@ evaluate:
   # from_checkpoint: 'best_flronetunet/flronetunet16.pt'
   n_dropout_sensors: 0
   noise_level: 0.
-  init_fullstate_timeframes: [15] # FLRONet-specific, set to null to randomly generate the fullstate frames with the same random seed at training 
+  init_fullstate_timeframes: [10] # FLRONet-specific, set to null to randomly generate the fullstate frames with the same random seed at training 
 
 inference:
   from_checkpoint: 'best_flronet/flronetfno3.pt'
   case_dir: 'data/test/case0041'
   sensor_timeframes: [165, 170, 175, 180, 185]
-  reconstruction_timeframes: [175.8]  # not for FNO3D
+  reconstruction_timeframes: [175]  # not for FNO3D
   sensor_position_path: 'tensors/test/sensor_positions/pos.pt'
   n_dropout_sensors: 0
   noise_level: 0.
