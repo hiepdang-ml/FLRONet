@@ -4,7 +4,7 @@ scales = ['1x', '2x', '4x', '8x']
 flronet_v100 = [0.14, 0.17, 0.25, 0.47]
 flronet_a100 = [0.09, 0.11, 0.16, 0.3]
 
-fno3d_v100 = [0.17, 0.21, 0.28, 0.51]
+fno3d_v100 = [0.17, 0.2, 0.28, 0.51]
 fno3d_a100 = [0.11, 0.13, 0.17, 0.32]
 
 positions = [float(x.replace('x', '')) for x in scales]

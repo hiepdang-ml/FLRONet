@@ -76,29 +76,39 @@ def plot_frame(
             norm = matplotlib.colors.Normalize(vmin=0, vmax=max_value)
 
         im = ax.imshow(frame.squeeze(dim=0), origin="lower", norm=norm, cmap=cmaps.balance)
-        # cbar = ax.figure.colorbar(im, ax=ax, orientation='vertical', fraction=0.046, pad=0.04)
-        # cbar = ax.figure.colorbar(im, ax=ax, orientation='vertical', fraction=0.027, pad=0.04)  # for display in report
-        # cbar.ax.tick_params(labelsize=10)
+        # Display cmap bar
+        # cbar = ax.figure.colorbar(im, ax=ax, orientation='vertical', fraction=0.027, pad=0.04)
+        # cbar.ax.tick_params(labelsize=14)
+        # if chart_title == 'Error':
+        #     tick_values = list(range(int(cbar.vmin), int(cbar.vmax) + 1, 5))
+        # else:
+        #     tick_values = list(range(int(cbar.vmin), int(cbar.vmax) + 1, 2))
+        # cbar.set_ticks(tick_values)
 
         if sensor_positions is not None:
             for sensor_x, sensor_y in sensor_positions:
                 # mark sensors
                 ax.add_patch(
-                    patches.Rectangle(
+                    patches.Circle(
                         xy=(sensor_y, sensor_x),
-                        width=1, height=1,  # Size of the marker (1 pixel)
-                        edgecolor='white',
+                        radius=1.3,  # Adjust the radius for dot size
+                        edgecolor='black',
                         facecolor='white',
                         fill=True
                     )
                 )
         # NOTE: setting for display in report
         ax.tick_params(labelbottom=False, labelleft=False)  # remove tick labels
-        # ax.set_title(f'{chart_title}', fontsize=14)   # set subplot titles
+        # remove ticks
+        ax.set_xticks([])
+        ax.set_yticks([])
 
     fig.suptitle(title, fontsize=15)
-    # Finalize and save the figure
+    # Ensure no margin
     fig.tight_layout(rect=[0, 0, 1, 0.99])
+    plt.subplots_adjust(left=0, right=1, top=0.99, bottom=0.01)
+    plt.margins(0)
+    # Save the figure
     destination_directory = './plots'
     os.makedirs(destination_directory, exist_ok=True)
     timestamp: dt.datetime = dt.datetime.now()
