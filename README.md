@@ -11,13 +11,8 @@ This repository accompanies the paper:
 
 ---
 
-## 🔥 Visual Summary
-
-<!-- HERO GIF: Ground truth vs FLRONet reconstruction (time evolution) -->
-<!-- Example: ![](assets/gifs/truth_vs_flronet.gif) -->
-
-<!-- OPTIONAL: Single composite GIF showing sensors → Voronoi → reconstruction -->
-Example: ![](assets/merged.gif)
+## 🔥 Visual Example
+![Visual Example](assets/merged.gif)
 
 ---
 
@@ -29,6 +24,10 @@ FLRONet integrates:
 - Voronoi tessellation for sparse sensor embedding  
 - Fourier Neural Operators (FNO) for spatial invariance  
 - DeepONet-style branch–trunk architecture for continuous temporal reconstruction  
+
+<p align="center">
+  <img src="assets/Fig1.png" alt="Architecture" width="60%">
+</p>
 
 ---
 
@@ -45,13 +44,14 @@ FLRONet integrates:
 
 ## Method at a Glance
 
-<!-- ARCHITECTURE DIAGRAM (static PNG recommended) -->
-<!-- Example: ![](assets/figures/flronet_architecture.png) -->
-
 FLRONet decomposes the inverse reconstruction operator into:
 - A **spatial branch network** (FNO-based) that maps sparse sensor snapshots to a latent field representation
 - A **temporal trunk network** that maps continuous query times to reconstruction weights
 - A dot-product fusion yielding the reconstructed flow field as a continuous function of space and time
+
+<p align="center">
+  <img src="assets/Fig2.png" alt="Architecture" width="60%">
+</p>
 
 ---
 
@@ -59,8 +59,7 @@ FLRONet decomposes the inverse reconstruction operator into:
 
 ### Spatial Super-Resolution
 
-<!-- GIF: 1× → 2× → 4× → 8× spatial upscaling -->
-<!-- Example: ![](assets/gifs/spatial_super_resolution.gif) -->
+Example: ![](assets/gifs/spatial_super_resolution.gif)
 
 FLRONet is trained on a coarse grid and evaluated on significantly finer spatial resolutions without retraining.
 
