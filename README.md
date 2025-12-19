@@ -17,7 +17,7 @@ This repository accompanies the paper:
 <!-- Example: ![](assets/gifs/truth_vs_flronet.gif) -->
 
 <!-- OPTIONAL: Single composite GIF showing sensors → Voronoi → reconstruction -->
-Example: ![](assets/gifs/sensors_to_field.gif)
+Example: ![](assets/merged.gif)
 
 ---
 
