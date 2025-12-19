@@ -26,7 +26,7 @@ FLRONet integrates:
 - DeepONet-style branch–trunk architecture for continuous temporal reconstruction  
 
 <p align="center">
-  <img src="assets/Fig1.png" alt="Architecture" width="60%">
+  <img src="assets/Fig1.png" alt="Architecture" width="100%">
 </p>
 
 ---
@@ -50,7 +50,7 @@ FLRONet decomposes the inverse reconstruction operator into:
 - A dot-product fusion yielding the reconstructed flow field as a continuous function of space and time
 
 <p align="center">
-  <img src="assets/Fig2.png" alt="Architecture" width="60%">
+  <img src="assets/Fig2.png" alt="Architecture" width="100%">
 </p>
 
 ---
