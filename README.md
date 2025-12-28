@@ -30,9 +30,7 @@ Official implementation of **FLRONet**, a spatiotemporal deep operator network f
 - [Evaluation](#evaluation)
 - [Inference](#inference)
 - [Outputs](#outputs)
-- [Troubleshooting](#troubleshooting)
 - [Citation](#citation)
-- [License](#license)
 
 ---
 
@@ -46,7 +44,7 @@ FLRONet reconstructs a high‑dimensional spatiotemporal flow field from sparse 
 - The reconstruction is **continuous in time and space**, enabling discretization‑independent prediction and zero‑shot spatiotemporal interpolation inside the observation window.
 
 <p align="center">
-  <img src="assets/Fig1.png" width="55%">
+  <img src="assets/Fig1.png" width="100%">
 </p>
 
 ---
@@ -58,7 +56,7 @@ FLRONet reconstructs a high‑dimensional spatiotemporal flow field from sparse 
 - Zero‑shot spatial super‑resolution (no retraining)
 - Continuous temporal interpolation at arbitrary query times
 - Robustness to missing and noisy sensors
-- Faster inference than 3D FNO baselines (see paper for benchmarks)
+- Faster and better inference than 3D FNO baselines (see paper for benchmarks)
 
 ---
 
@@ -71,7 +69,7 @@ FLRONet decomposes the inverse reconstruction operator into:
 - A dot‑product fusion that yields the reconstructed flow field as a continuous function of space and time
 
 <p align="center">
-  <img src="assets/Fig2.png" width="65%">
+  <img src="assets/Fig2.png" width="70%">
 </p>
 
 ---
@@ -83,7 +81,7 @@ FLRONet decomposes the inverse reconstruction operator into:
 Trained at $(140\times240)$, FLRONet performs inference at $(280\times480)$, $(560\times960)$, and $(1120\times1920)$ ($2\times$, $4\times$, and $8\times$ upscaling). In practice, the maximum upscale factor is limited by available GPU VRAM.
 
 <p align="center">
-  <img src="assets/Fig10.png" width="75%">
+  <img src="assets/Fig10.png" width="100%">
 </p>
 
 ### Continuous super-resolution in time
@@ -91,7 +89,7 @@ Trained at $(140\times240)$, FLRONet performs inference at $(280\times480)$, $(5
 Even when trained on discrete time intervals (e.g., $\Delta t = 10^{-3}\,s$), FLRONet can reconstruct at any continuous query time $t$ within the observation window, up to floating‑point precision.
 
 <p align="center">
-  <img src="assets/Fig14.png" width="75%">
+  <img src="assets/Fig14.png" width="100%">
 </p>
 
 ---
@@ -104,7 +102,7 @@ Even when trained on discrete time intervals (e.g., $\Delta t = 10^{-3}\,s$), FL
 - Treating sensor observations as a **function** rather than a fixed‑length vector reduces sensitivity to incomplete data.
 
 <p align="center">
-  <img src="assets/missing.gif" width="85%">
+  <img src="assets/missing.gif" width="100%">
 </p>
 
 *Caption:* FLRONet remains reliable under extreme Voronoi‑input instability caused by random sensor dropout.
@@ -115,7 +113,7 @@ Even when trained on discrete time intervals (e.g., $\Delta t = 10^{-3}\,s$), FL
 - Spectral filtering in Fourier layers suppresses high‑frequency noise by truncating noisy Fourier modes.
 
 <p align="center">
-  <img src="assets/noise.gif" width="85%">
+  <img src="assets/noise.gif" width="100%">
 </p>
 
 *Caption:* FLRONet remains robust under Voronoi‑input instability caused by random sensor noise.
@@ -289,7 +287,7 @@ inference:
 ```yaml
 inference:
   sensor_timeframes: [40, 45, 50, 55, 60]   # example observation window times
-  reconstruction_timeframes: [52.12342345]   # arbitrary query time within the window
+  reconstruction_timeframes: [52.12342345]  # arbitrary query time within the window
   out_resolution: [1120, 1920]              # 8x upscale from 140x240
 ```
 
