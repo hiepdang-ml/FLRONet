@@ -7,7 +7,7 @@ Official implementation of **FLRONet**, a spatiotemporal deep operator network f
 > **Hiep Vo Dang, Phong C. H. Nguyen**  
 > *Deep Operator Learning for High‑Fidelity Fluid Flow Field Reconstruction From Sparse Sensor Measurements*  
 > *Journal of Computing and Information Science in Engineering*, 2026  
-> DOI: 10.1115/1.4070332
+> DOI: [10.1115/1.4070332](https://doi.org/10.1115/1.4070332)
 
 <p align="center">
   <img src="assets/summary.gif" width="100%">
