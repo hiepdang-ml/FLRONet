@@ -123,7 +123,7 @@ Even when trained on discrete time intervals (e.g., $\Delta t = 10^{-3}\,s$), FL
 ## Quickstart
 
 ```bash
-# 1) Clone this repository:
+# 1) Clone this repository
 git clone --depth 1 git@github.com:hiepdang-ml/FLRONet.git
 cd FLRONet
 
@@ -131,7 +131,7 @@ cd FLRONet
 conda env create -f env.yaml
 conda activate FLRONet
 
-# 3) (Optional but recommended) make imports work everywhere
+# 3) Set environment variables
 export PYTHONPATH=.
 export PATH="$(pwd):$PATH"
 
