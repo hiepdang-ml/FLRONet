@@ -362,6 +362,7 @@ class Predictor(Worker, DatasetMixin):
                         sensor_frame = None
                     else:
                         sensor_frame: torch.Tensor = sensor_frames[sensor_timeframes == timeframe].squeeze(0) # universally true
+                    
                     reconstruction_frame: torch.Tensor = reconstruction_frames[frame_idx]
                     fullstate_frame: torch.Tensor = fullstate_frames[frame_idx]
                     frame_total_mse: torch.Tensor = self.rmse(

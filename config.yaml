@@ -38,24 +38,25 @@ training:
   freeze_bias: false
 
 evaluate:
-  # from_checkpoint: 'best_fno3d/fno3d9.pt'
-  from_checkpoint: 'best_flronet/flronetfno3.pt'
-  # from_checkpoint: 'best_flronetmlp/flronetmlp12.pt'
-  # from_checkpoint: 'best_flronetunet/flronetunet16.pt'
-  n_dropout_sensors: 0
+  # from_checkpoint: '/scratch/zgp2ps/flronet_checkpoints/best_fno3d/fno3d9.pt'
+  from_checkpoint: '/scratch/zgp2ps/flronet_checkpoints/best_flronet/flronetfno3.pt'
+  # from_checkpoint: '/scratch/zgp2ps/flronet_checkpoints/best_flronetmlp/flronetmlp12.pt'
+  # from_checkpoint: '/scratch/zgp2ps/flronet_checkpoints/best_flronetunet/flronetunet16.pt'
+  n_dropout_sensors: 20
   noise_level: 0.
   init_fullstate_timeframes: [10] # FLRONet-specific, set to null to randomly generate the fullstate frames with the same random seed at training 
 
 inference:
-  from_checkpoint: 'best_flronet/flronetfno3.pt'
-  case_dir: 'data/test/case0041'
-  sensor_timeframes: [165, 170, 175, 180, 185]
-  reconstruction_timeframes: [175]  # not for FNO3D
-  sensor_position_path: 'tensors/test/sensor_positions/pos.pt'
+  from_checkpoint: '/scratch/zgp2ps/flronet_checkpoints/best_flronet/flronetfno3.pt'
+  case_dir: '/scratch/zgp2ps/cfdbench/data/test/case0034'
+  sensor_timeframes: [40, 45, 50, 55, 60]
+  reconstruction_timeframes: [52.12342345]  # not for FNO3D
+  sensor_position_path: "tensors/train/sensor_positions/pos.pt"
   n_dropout_sensors: 0
   noise_level: 0.
   # out_resolution: [140, 240]
   # out_resolution: [280, 480]
   # out_resolution: [560, 960]
   out_resolution: [1120, 1920]
+  # out_resolution: [2240, 3840]
 

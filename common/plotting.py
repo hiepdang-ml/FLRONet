@@ -115,7 +115,6 @@ def plot_frame(
     if not filename:
         filename: str = f"{timestamp.strftime('%Y%m%d%H%M%S')}{timestamp.microsecond // 1000:03d}"
 
-    # fig.savefig(os.path.join(destination_directory, f'{filename}.png'), dpi=2048)
     fig.savefig(os.path.join(destination_directory, f'{filename}.png'))
     plt.close(fig)
 
