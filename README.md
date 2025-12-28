@@ -165,8 +165,11 @@ python inference.py --config=config.yaml
 ## Environment setup
 
 ### 1) Clone this repository:
+
+```bash
 git clone --depth 1 git@github.com:hiepdang-ml/FLRONet.git
 cd FLRONet
+```
 
 ### 2) Create and activate the conda environment
 
